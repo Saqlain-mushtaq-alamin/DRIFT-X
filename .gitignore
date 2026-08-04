@@ -9,16 +9,23 @@ __pycache__/
 venv/
 env/
 
+# Data & Large Files
+data/raw/*
+!data/raw/.gitkeep
+mlruns/
+results/*
+!results/.gitkeep
+*.pkl
+*.joblib
+
 # Environment variables
 .env
 
 # Jupyter
 .ipynb_checkpoints/
 
-# VS Code
+# VS Code & IDEs
 .vscode/
-
-# PyCharm
 .idea/
 
 # Logs
@@ -29,19 +36,18 @@ build/
 dist/
 *.egg-info/
 
-# Testing
+# Testing & Coverage
 .pytest_cache/
 .coverage
 htmlcov/
 
-# mypy
+# mypy & linters
 .mypy_cache/
-
-# Ruff
 .ruff_cache/
 
 # OS
 Thumbs.db
 .DS_Store
 
-planning
+
+planning 
