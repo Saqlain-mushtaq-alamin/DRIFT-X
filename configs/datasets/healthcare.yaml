@@ -1,0 +1,7 @@
+dataset: "healthcare"
+name: "MIMIC-III Clinical Predictions"
+timestamp_col: "charttime"
+target_col: "readmission_30d"
+window_size: "quarterly"
+min_window_samples: 500
+data_path: "data/raw/mimic_clinical.csv"

@@ -1,0 +1,68 @@
+# DRIFT-X Default Experiment Configuration
+
+project:
+  name: "driftx"
+  seed: 42
+  n_seeds: 5                    # Number of random seeds for experiments
+
+data:
+  dataset: "fraud"              # Options: fraud, intrusion, healthcare
+  timestamp_col: "TransactionDT" # Varies per dataset
+  target_col: "isFraud"
+  window_size: "monthly"        # Options: weekly, monthly, quarterly
+  min_window_samples: 1000      # Skip windows with fewer samples
+
+model:
+  type: "xgboost"               # Options: xgboost, random_forest, gradient_boosting
+  params:
+    n_estimators: 200
+    max_depth: 6
+    learning_rate: 0.1
+    eval_metric: "logloss"
+    use_label_encoder: false
+
+detection:
+  statistical_method: "ks"      # Options: ks, psi
+  ks_alpha: 0.05                # Significance level for KS-test
+  psi_threshold: 0.2            # PSI threshold for drift
+
+explainability:
+  shap_method: "tree"           # Options: tree, kernel, sampling
+  max_shap_samples: 500         # Subsample for SHAP computation speed
+  magnitude_threshold: 0.1      # Fixed threshold for P3
+  rank_change_threshold: 0.3    # Fixed threshold for P4 (1 - Spearman ρ)
+
+fusion:
+  alpha: 0.3                    # Weight for statistical drift
+  beta: 0.3                     # Weight for SHAP magnitude
+  gamma: 0.4                    # Weight for SHAP rank-change
+  adaptive_lookback: 5          # k: number of past windows for adaptive threshold
+  adaptive_lambda: 2.0          # λ: sensitivity for adaptive threshold
+
+policy:
+  fixed_schedule_interval: 3    # Retrain every N windows for P1
+  active_policies:              # Which policies to run
+    - "p0_never"
+    - "p1_fixed"
+    - "p2_drift_only"
+    - "p3_shap_magnitude"
+    - "p4_shap_rank"
+    - "p5_dis_fused"
+
+evaluation:
+  metrics:
+    - "accuracy"
+    - "f1_weighted"
+    - "precision_weighted"
+    - "recall_weighted"
+  cost_metric: "wall_clock_seconds"
+
+mlflow:
+  tracking_uri: "mlruns"        # Local MLflow directory
+  experiment_name: "driftx_main"
+
+output:
+  results_dir: "results"
+  save_plots: true
+  save_csv: true
+  plot_format: "png"            # Options: png, svg, pdf

@@ -1,0 +1,7 @@
+dataset: "intrusion"
+name: "CIC-IDS2018 Network Intrusion"
+timestamp_col: "Timestamp"
+target_col: "Label"
+window_size: "daily"
+min_window_samples: 5000
+data_path: "data/raw/cic_ids2018.csv"
