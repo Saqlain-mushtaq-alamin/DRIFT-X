@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "driftx"
@@ -8,8 +8,13 @@ version = "0.1.0"
 description = "Drift-Reactive Interpretable Feature-Tracking with eXplainability"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["driftx*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = ["."]
