@@ -15,10 +15,10 @@ class AdaptiveThresholdController:
 
     def __init__(
         self,
-        lookback: int = 5,
-        lambda_val: float = 2.0,
+        lookback: int = 3,
+        lambda_val: float = 1.5,
         min_threshold: float = 0.05,
-        warmup_threshold: float = 0.3,
+        warmup_threshold: float = 0.1,
     ):
         """
         Args:
