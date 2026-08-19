@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("SensitivityAnalysis")
 
 LAMBDA_VALUES = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
-LOOKBACK_VALUES = [3, 5, 7, 10]
+LOOKBACK_VALUES = [2, 3, 5, 7]  # 10 removed — requires >10 windows to exit warmup
 
 
 def run_sensitivity(config_path: Optional[str] = None):
@@ -60,7 +60,8 @@ def run_sensitivity(config_path: Optional[str] = None):
                 logger.warning(f"MLflow setup warning: {e}")
         
         runner = ExperimentRunner(config)
-        results = runner.run_all()
+        # Use a dedicated filename so we don't overwrite experiment_results.csv
+        results = runner.run_all(output_filename="sensitivity_run_temp.csv")
         results["lambda"] = lambda_val
         results["lookback"] = lookback
         
