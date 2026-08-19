@@ -75,7 +75,8 @@ def run_ablation(config_path: Optional[str] = None):
                 logger.warning(f"MLflow setup warning: {e}")
         
         runner = ExperimentRunner(config)
-        results = runner.run_all()
+        # Use a dedicated filename so we don't overwrite experiment_results.csv
+        results = runner.run_all(output_filename="ablation_run_temp.csv")
         results["ablation"] = ablation_name
         results["alpha"] = weights["alpha"]
         results["beta"] = weights["beta"]
