@@ -20,11 +20,14 @@ class ModelTrainer:
         Args:
             config: Model configuration dictionary containing:
                 - type: str ("xgboost", "random_forest", "gradient_boosting")
-                - params: dict of model hyperparameters
+                - params: dict of model hyperparameters (may include random_state)
         """
         self.config = config
         self.model_type = config.get("type", "xgboost")
         self.model_params = config.get("params", {}).copy()
+        # Extract seed once from config so every train() call uses the correct
+        # per-run seed rather than the old hardcoded default of 42.
+        self.seed: int = int(self.model_params.pop("random_state", 42))
         self.model: Optional[Union[xgb.XGBClassifier, RandomForestClassifier, GradientBoostingClassifier]] = None
         self.training_cost_seconds: float = 0.0
         self.version: int = 0
@@ -34,29 +37,34 @@ class ModelTrainer:
         X: pd.DataFrame,
         y: pd.Series,
         validation_split: float = 0.15,
-        seed: int = 42
     ) -> Dict[str, Any]:
         """
         Train a new classifier model on provided window features and target.
+
+        The random seed is taken from ``self.seed`` which was set in ``__init__``
+        from the model config's ``random_state`` parameter.  This ensures every
+        call to ``train()`` — initial training and every retrain — uses the
+        seed that the ExperimentRunner injected per experimental run.
 
         Args:
             X: Feature DataFrame
             y: Target Series
             validation_split: Fraction of window data to reserve for validation
-            seed: Random seed for reproducibility
 
         Returns:
             Dict containing train/val metrics, training time cost, and version number.
         """
         X_train, X_val, y_train, y_val = train_test_split(
-            X, y, test_size=validation_split, random_state=seed, stratify=y if len(y.unique()) > 1 else None
+            X, y, test_size=validation_split,
+            random_state=self.seed,
+            stratify=y if len(y.unique()) > 1 else None,
         )
 
         start_time = time.perf_counter()
 
         if self.model_type == "xgboost":
             params = self.model_params.copy()
-            params.setdefault("random_state", seed)
+            params["random_state"] = self.seed  # Force — do not use setdefault
             params.setdefault("n_estimators", 100)
             params.setdefault("max_depth", 5)
             # Remove legacy XGBoost parameters if present
@@ -67,7 +75,7 @@ class ModelTrainer:
         elif self.model_type == "random_forest":
             rf_keys = {"n_estimators", "max_depth", "min_samples_split", "criterion"}
             params = {k: v for k, v in self.model_params.items() if k in rf_keys}
-            params.setdefault("random_state", seed)
+            params["random_state"] = self.seed
             params.setdefault("n_estimators", 100)
             self.model = RandomForestClassifier(**params)
             self.model.fit(X_train, y_train)
@@ -75,7 +83,7 @@ class ModelTrainer:
         elif self.model_type == "gradient_boosting":
             gb_keys = {"n_estimators", "max_depth", "learning_rate", "subsample"}
             params = {k: v for k, v in self.model_params.items() if k in gb_keys}
-            params.setdefault("random_state", seed)
+            params["random_state"] = self.seed
             params.setdefault("n_estimators", 100)
             self.model = GradientBoostingClassifier(**params)
             self.model.fit(X_train, y_train)
