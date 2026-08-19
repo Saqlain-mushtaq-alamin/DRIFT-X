@@ -57,17 +57,24 @@ class KSDriftDetector:
             }
 
         n_tested = len(results)
-        drift_score = float(n_drifted / n_tested) if n_tested > 0 else 0.0
+        drift_fraction = float(n_drifted / n_tested) if n_tested > 0 else 0.0
+        # Continuous drift score: mean KS statistic across all features.
+        # This is preferable to the fraction of drifted features because it is
+        # smooth and gives the DIS signal normalizer a richer gradient to work with.
+        ks_statistics = [v["statistic"] for v in results.values()]
+        continuous_score = float(np.mean(ks_statistics)) if ks_statistics else 0.0
         # Flag drift if 50% or more features show statistically significant distribution shift
-        drift_detected = bool(drift_score >= 0.5)
+        drift_detected = bool(drift_fraction >= 0.5)
 
         logger.info(
-            f"KS-Test results: {n_drifted}/{n_tested} features drifted (score={drift_score:.3f}, detected={drift_detected})"
+            f"KS-Test results: {n_drifted}/{n_tested} features drifted "
+            f"(continuous_score={continuous_score:.3f}, fraction={drift_fraction:.3f}, detected={drift_detected})"
         )
 
         return {
             "drift_detected": drift_detected,
-            "drift_score": drift_score,
+            "drift_score": continuous_score,   # Continuous mean KS statistic [0, 1]
+            "drift_fraction": drift_fraction,  # Legacy discrete fraction (kept for reference)
             "per_feature": results,
             "n_drifted_features": n_drifted,
             "n_tested_features": n_tested,
