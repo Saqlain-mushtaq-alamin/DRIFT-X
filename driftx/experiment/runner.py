@@ -35,6 +35,7 @@ from driftx.explainability.shap_computer import ShapComputer
 from driftx.explainability.magnitude import MagnitudeTracker
 from driftx.explainability.rank_change import RankChangeTracker
 from driftx.fusion.dis import DriftImpactScore
+from driftx.fusion.normalizer import SignalNormalizer
 from driftx.fusion.threshold import AdaptiveThresholdController
 from driftx.training.trainer import ModelTrainer
 from driftx.policy import create_all_policies
@@ -50,12 +51,14 @@ class ExperimentRunner:
         self.config = config
         self.results: List[Dict] = []
     
-    def run_all(self, df_override: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    def run_all(self, df_override: Optional[pd.DataFrame] = None, output_filename: Optional[str] = None) -> pd.DataFrame:
         """
         Run all policies × all seeds. Main entry point.
         
         Args:
             df_override: Optional pre-loaded DataFrame (e.g. for testing)
+            output_filename: Optional override for the output CSV filename.
+                Defaults to 'experiment_results.csv'.
             
         Returns:
             DataFrame with one row per (policy, seed, window).
@@ -82,10 +85,11 @@ class ExperimentRunner:
                 synth_file = data_path / "synthetic_drift.csv"
                 generate_synthetic_drift_data(
                     output_path=str(synth_file),
-                    n_windows=8,
+                    n_windows=20,
                     samples_per_window=1500,
-                    n_features=12,
-                    seed=42
+                    n_features=15,
+                    seed=42,
+                    drift_intensity=0.4,
                 )
             
             df = ingestor.load(data_dir=str(data_path))
@@ -130,7 +134,8 @@ class ExperimentRunner:
         # Save to CSV
         output_dir = Path(self.config.get("output", {}).get("results_dir", "results"))
         output_dir.mkdir(parents=True, exist_ok=True)
-        csv_path = output_dir / "experiment_results.csv"
+        fname = output_filename if output_filename else "experiment_results.csv"
+        csv_path = output_dir / fname
         results_df.to_csv(csv_path, index=False)
         logger.info(f"Results saved to {csv_path}")
         
@@ -179,9 +184,12 @@ class ExperimentRunner:
             beta=self.config["fusion"]["beta"],
             gamma=self.config["fusion"]["gamma"],
         )
+        # Per-signal normalizer: scales each DIS input to [0, 1] so the
+        # fused score occupies the full range and can exceed the warmup threshold.
+        signal_normalizer = SignalNormalizer(warmup_windows=2)
         atc = AdaptiveThresholdController(
-            lookback=self.config["fusion"].get("adaptive_lookback", 5),
-            lambda_val=self.config["fusion"].get("adaptive_lambda", 2.0),
+            lookback=self.config["fusion"].get("adaptive_lookback", 3),
+            lambda_val=self.config["fusion"].get("adaptive_lambda", 1.5),
         )
         
         run_results = []
@@ -278,11 +286,16 @@ class ExperimentRunner:
                     shap_result["mean_abs_shap"]
                 )
                 
-                # 6. Compute DIS (fused score)
+                # 6. Normalise signals to [0,1] then compute DIS (fused score)
+                normalized = signal_normalizer.normalize(
+                    stat=stat_drift["drift_score"],
+                    mag=mag_result["magnitude_score"],
+                    rank=rank_result["rank_change_score"],
+                )
                 dis_result = dis_computer.compute(
-                    stat_drift_score=stat_drift["drift_score"],
-                    shap_magnitude_score=mag_result["magnitude_score"],
-                    shap_rank_change_score=rank_result["rank_change_score"],
+                    stat_drift_score=normalized["stat"],
+                    shap_magnitude_score=normalized["magnitude"],
+                    shap_rank_change_score=normalized["rank_change"],
                     window_id=w_idx,
                 )
                 
