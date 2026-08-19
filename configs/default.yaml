@@ -29,15 +29,15 @@ detection:
 explainability:
   shap_method: "tree"           # Options: tree, kernel, sampling
   max_shap_samples: 500         # Subsample for SHAP computation speed
-  magnitude_threshold: 0.1      # Fixed threshold for P3
-  rank_change_threshold: 0.3    # Fixed threshold for P4 (1 - Spearman ρ)
+  magnitude_threshold: 0.030     # Fixed threshold for P3 (75th pct of observed normalised L1 scores)
+  rank_change_threshold: 0.035   # Fixed threshold for P4 (80th pct of observed 1-Spearman-ρ scores)
 
 fusion:
   alpha: 0.3                    # Weight for statistical drift
   beta: 0.3                     # Weight for SHAP magnitude
   gamma: 0.4                    # Weight for SHAP rank-change
-  adaptive_lookback: 5          # k: number of past windows for adaptive threshold
-  adaptive_lambda: 2.0          # λ: sensitivity for adaptive threshold
+  adaptive_lookback: 3          # k: number of past windows for adaptive threshold
+  adaptive_lambda: 1.5          # λ: sensitivity for adaptive threshold
 
 policy:
   fixed_schedule_interval: 3    # Retrain every N windows for P1
