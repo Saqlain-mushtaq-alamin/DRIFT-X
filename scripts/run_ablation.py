@@ -2,13 +2,13 @@
 Ablation study: Isolate which DIS component matters most.
 
 Variants:
-1. Full DIS (α=0.3, β=0.3, γ=0.4) — normal
-2. StatOnly (α=1.0, β=0.0, γ=0.0) — only statistical drift
-3. MagOnly (α=0.0, β=1.0, γ=0.0) — only SHAP magnitude
-4. RankOnly (α=0.0, β=0.0, γ=1.0) — only SHAP rank-change
-5. Stat+Mag (α=0.5, β=0.5, γ=0.0) — no rank-change
-6. Stat+Rank (α=0.5, β=0.0, γ=0.5) — no magnitude
-7. Mag+Rank (α=0.0, β=0.5, γ=0.5) — no statistical
+1. Full DIS (alpha=0.4, beta=0.4, gamma=0.2) -- matches default.yaml after Bug-3 fix
+2. StatOnly (alpha=1.0, beta=0.0, gamma=0.0) -- only statistical drift
+3. MagOnly (alpha=0.0, beta=1.0, gamma=0.0) -- only SHAP magnitude
+4. RankOnly (alpha=0.0, beta=0.0, gamma=1.0) -- only SHAP rank-change
+5. Stat+Mag (alpha=0.5, beta=0.5, gamma=0.0) -- no rank-change
+6. Stat+Rank (alpha=0.5, beta=0.0, gamma=0.5) -- no magnitude
+7. Mag+Rank (alpha=0.0, beta=0.5, gamma=0.5) -- no statistical
 """
 import sys
 import yaml
@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("AblationStudy")
 
 ABLATION_CONFIGS = {
-    "full_dis":     {"alpha": 0.3, "beta": 0.3, "gamma": 0.4},
+    "full_dis":     {"alpha": 0.4, "beta": 0.4, "gamma": 0.2},  # matches default.yaml (Bug-3 fix)
     "stat_only":    {"alpha": 1.0, "beta": 0.0, "gamma": 0.0},
     "mag_only":     {"alpha": 0.0, "beta": 1.0, "gamma": 0.0},
     "rank_only":    {"alpha": 0.0, "beta": 0.0, "gamma": 1.0},
