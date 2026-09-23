@@ -195,10 +195,12 @@ class ExperimentRunner:
         run_results = []
         total_cost = 0.0
         retrain_count = 0
+        last_dis_result = {}
+        last_atc_result = {}
         run_name = f"{policy.policy_id}_seed{seed}"
         
         def execute_pipeline():
-            nonlocal total_cost, retrain_count
+            nonlocal total_cost, retrain_count, last_dis_result, last_atc_result
             
             if mlflow is not None:
                 try:
@@ -304,6 +306,8 @@ class ExperimentRunner:
                     dis_value=dis_result["dis"],
                     window_id=w_idx,
                 )
+                last_dis_result = dis_result
+                last_atc_result = atc_result
                 
                 # 8. Policy decision
                 decision = policy.decide(
@@ -418,6 +422,20 @@ class ExperimentRunner:
                 execute_pipeline()
         else:
             execute_pipeline()
+
+        # Persist latest model and DIS status to results/ using ModelRegistry
+        try:
+            from driftx.training.registry import ModelRegistry
+            output_dir = self.config.get("output", {}).get("results_dir", "results")
+            registry = ModelRegistry(output_dir)
+            registry.export_latest_artifacts(
+                trainer=trainer,
+                dis_result=last_dis_result,
+                atc_result=last_atc_result,
+                output_dir=output_dir,
+            )
+        except Exception as e:
+            logger.debug(f"ModelRegistry export notice: {e}")
         
         return run_results
     
