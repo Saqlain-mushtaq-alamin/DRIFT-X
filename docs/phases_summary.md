@@ -1,6 +1,6 @@
 # DRIFT-X Completed Phases Summary
 
-This document provides a detailed breakdown of the work completed across Phase 0 through Phase 5 of the DRIFT-X framework.
+This document provides a detailed breakdown of the work completed across Phase 0 through Phase 8 of the DRIFT-X framework.
 
 ---
 
@@ -161,4 +161,37 @@ This document provides a detailed breakdown of the work completed across Phase 0
 ### Verification
 - **Unit Tests**: `tests/test_viz.py`
 - **Script**: `python scripts/verify_phase7.py`
+
+---
+
+## 🌐 Phase 8: Multi-Dataset Validation & Serving Layer
+
+### Core Components Implemented
+- **Multi-Dataset Ingestion & Adapters (`driftx.data.ingestor.DataIngestor`)**:
+  - **CIC-IDS2018 (`intrusion`)**: Supports loading raw daily network intrusion flow datasets or generating realistic organic drift traffic with evolving attack signatures (DoS, DDoS, Botnet, Infiltration).
+  - **Australian NSW Electricity (`electricity` / ELEC2)**: Ingests the classic organic concept drift benchmark from OpenML with 45,312 time-series instances, automated target normalization (`UP` $\rightarrow 1$, `DOWN` $\rightarrow 0$), and offline drift fallback generation.
+  - **Dataset Configurations**: `configs/datasets/intrusion.yaml`, `configs/datasets/electricity.yaml`, and `configs/datasets/fraud.yaml`.
+
+- **Daily Window Partitioning (`driftx.data.windower.WindowSplitter`)**:
+  - Implemented `"daily"` window size mode ($t_{\text{step}} = 86,400\text{s}$) with automated unit vs. seconds timestamp scale detection and strict zero-leakage verification.
+
+- **Model Registry & Artifact Persistence (`driftx.training.registry.ModelRegistry`)**:
+  - Serializes trained classifier models (`results/latest_model.joblib`), version metadata, and real-time DIS monitoring state (`results/latest_dis.json`).
+  - Seamlessly integrates with `ExperimentRunner` to persist latest model artifacts across retrain cycles.
+
+- **FastAPI Serving Layer (`driftx.serving.api` & `ModelServer`)**:
+  - Provides production-ready REST API serving:
+    - `GET /health`: Health status, model loaded boolean, and active model version.
+    - `POST /predict`: Real-time inference returning prediction class, calibrated probabilities, and model version.
+    - `GET /drift-status`: Live Drift Impact Score (DIS), individual component breakdown, and adaptive threshold monitoring.
+    - `POST /model/reload`: Dynamic on-demand reload of model artifacts from disk.
+
+- **Cross-Dataset Generalization Engine (`scripts/run_multi_dataset.py`, `scripts/generate_tables.py`)**:
+  - Automated benchmark comparing P0 (Never Retrain), P2 (Drift-Only), and P5 (DIS-Fused) across all three distinct domains.
+  - Automatically compiles publication-ready LaTeX tables (`results/cross_dataset_table.tex`) and Markdown tables (`results/cross_dataset_table.md`).
+
+### Verification
+- **Unit Tests**: `tests/test_serving.py` (7 tests), `tests/test_multi_dataset.py` (5 tests)
+- **Script**: `python scripts/verify_phase8.py` (Verified 100% across multi-dataset ingestion, zero-leakage daily windowing, multi-domain experiment runs, cross-dataset table generation, and FastAPI endpoints).
+
 
