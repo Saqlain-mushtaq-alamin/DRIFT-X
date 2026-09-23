@@ -19,16 +19,19 @@ logger = logging.getLogger(__name__)
 class ShapComputer:
     """Computes SHAP values and feature importance profiles for trained classifiers."""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], seed: int = 42):
         """
         Args:
             config: Configuration dict with keys:
                 - shap_method: str ("tree", "kernel")
                 - max_shap_samples: int (subsample limit for performance)
+            seed: Random seed for SHAP subsampling. Should match the
+                experiment seed for proper per-seed reproducibility.
         """
         self.config = config
         self.method = config.get("shap_method", "tree")
         self.max_samples = config.get("max_shap_samples", 500)
+        self.seed = seed
 
     def compute(self, model: Any, X: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -46,7 +49,7 @@ class ShapComputer:
                 - feature_rank_dict: Dict mapping feature name to 1-indexed rank
         """
         if len(X) > self.max_samples:
-            X_sample = X.sample(n=self.max_samples, random_state=42).reset_index(drop=True)
+            X_sample = X.sample(n=self.max_samples, random_state=self.seed).reset_index(drop=True)
             logger.info(f"Subsampled feature matrix from {len(X)} to {self.max_samples} for SHAP computation.")
         else:
             X_sample = X.reset_index(drop=True)
