@@ -52,12 +52,25 @@ def generate_paper_tables(results_path: Optional[str] = None):
         mean_cost = per_seed["cumulative_cost"].mean()
         mean_retrains = per_seed["cumulative_retrains"].mean()
         
+        # Extract fusion hyperparameters from CSV if present (logged since Bug-6 fix).
+        # Use dropna() to skip window-0 rows which don't carry these columns.
+        config_str = "N/A"
+        if all(c in p_df.columns for c in ("alpha", "beta", "gamma", "adaptive_lambda", "lookback_k")):
+            param_rows = p_df.dropna(subset=["alpha", "beta", "gamma", "adaptive_lambda", "lookback_k"])
+            if not param_rows.empty:
+                p_row = param_rows.iloc[0]
+                config_str = (
+                    f"α={p_row['alpha']:.1f}, β={p_row['beta']:.1f}, "
+                    f"γ={p_row['gamma']:.1f}, λ={p_row['adaptive_lambda']:.1f}, k={int(p_row['lookback_k'])}"
+                )
+
         summary.append({
             "Policy": policy_name,
             "Accuracy": f"{mean_acc:.4f} ± {std_acc:.4f}",
             "F1 Score": f"{mean_f1:.4f} ± {std_f1:.4f}",
             "Cost (s)": f"{mean_cost:.2f}",
             "Retrains": f"{mean_retrains:.1f}",
+            "Config (DIS-Fused only)": config_str if policy == "p5_dis_fused" else "—",
         })
     
     table_df = pd.DataFrame(summary)
@@ -71,17 +84,30 @@ def generate_paper_tables(results_path: Optional[str] = None):
     with open(latex_path, "w", encoding="utf-8") as f:
         f.write(latex_str)
     
-    # Save Markdown table
+    # Save Markdown table with footnote
+    footnote = (
+        "\n> **Config footnote (DIS-Fused):** "
+        "α=weight for statistical drift, β=weight for SHAP magnitude, "
+        "γ=weight for SHAP rank-change, λ=ATC sensitivity, k=ATC lookback windows.\n"
+    )
     md_str = table_df.to_markdown(index=False)
     md_path = out_dir / "paper_table.md"
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write(md_str)
-    
+        f.write(md_str + footnote)
+
     logger.info(f"✓ Saved LaTeX table to {latex_path}")
     logger.info(f"✓ Saved Markdown table to {md_path}")
-    
-    print("\n=== DRIFT-X Publication Results Table ===")
-    print(md_str)
+
+    # Use safe encoding for Windows console which may not support UTF-8/Greek chars
+    def _safe_print(text: str) -> None:
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            print(text.encode("ascii", errors="backslashreplace").decode("ascii"))
+
+    _safe_print("\n=== DRIFT-X Publication Results Table ===")
+    _safe_print(md_str)
+    _safe_print(footnote)
     
     return table_df
 
