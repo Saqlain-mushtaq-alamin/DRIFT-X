@@ -1,0 +1,18 @@
+# Australian New South Wales Electricity (ELEC2) Dataset Configuration
+data:
+  dataset: "electricity"
+  name: "Australian NSW Electricity Market (ELEC2)"
+  timestamp_col: "Timestamp"
+  target_col: "target"
+  window_size: "monthly"
+  min_window_samples: 1000
+  data_path: "data/raw/electricity.csv"
+
+# Backward compatibility root keys
+dataset: "electricity"
+name: "Australian NSW Electricity Market (ELEC2)"
+timestamp_col: "Timestamp"
+target_col: "target"
+window_size: "monthly"
+min_window_samples: 1000
+data_path: "data/raw/electricity.csv"
