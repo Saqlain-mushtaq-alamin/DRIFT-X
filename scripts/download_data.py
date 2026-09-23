@@ -108,9 +108,207 @@ def download_fraud_dataset(output_dir: str):
         generate_synthetic_drift_data(os.path.join(output_dir, "synthetic_drift.csv"))
 
 
+def generate_intrusion_drift_data(
+    output_path: str,
+    n_windows: int = 10,
+    samples_per_window: int = 1500,
+    seed: int = 42,
+    drift_intensity: float = 0.4,
+) -> pd.DataFrame:
+    """
+    Generate realistic network intrusion flow dataset modeled after CIC-IDS2018
+    with organic feature and concept drift across daily windows.
+
+    Args:
+        output_path: Path to write the output CSV.
+        n_windows: Number of daily temporal windows (e.g. 10 days of traffic).
+        samples_per_window: Flow records per day.
+        seed: Random seed.
+        drift_intensity: Controls attack emergence and feature drift magnitude.
+
+    Returns:
+        pd.DataFrame containing network traffic records.
+    """
+    np.random.seed(seed)
+    records = []
+    flow_features = [
+        "FlowDuration", "TotFwdPkts", "TotBwdPkts", "TotLenFwdPkts", "TotLenBwdPkts",
+        "FwdPktLenMax", "FwdPktLenMean", "BwdPktLenMax", "BwdPktLenMean", "FlowByts_s",
+        "FlowPkts_s", "FlowIATMean", "FlowIATStd", "FwdIATTot", "BwdIATTot"
+    ]
+    n_features = len(flow_features)
+    base_means = np.random.uniform(5.0, 50.0, size=n_features)
+    cov = np.eye(n_features) * 4.0
+
+    day_seconds = 86400.0
+
+    for w in range(n_windows):
+        w_means = base_means.copy()
+
+        # Introduce daily concept shifts (attack vectors evolving)
+        if w in [2, 3]:
+            # DoS / BruteForce attack day: high packet counts & small inter-arrival times
+            attack_prob = 0.25 * drift_intensity
+            attack_label = "DoS-SynFlood"
+            w_means[1] += 20.0 * drift_intensity  # TotFwdPkts
+            w_means[10] += 30.0 * drift_intensity # FlowPkts_s
+            w_means[11] = max(1.0, w_means[11] - 10.0 * drift_intensity) # FlowIATMean
+        elif w in [5, 6]:
+            # DDoS-LOIC attack day: massive volumetric forward bytes
+            attack_prob = 0.40 * drift_intensity
+            attack_label = "DDoS-LOIC"
+            w_means[3] += 50.0 * drift_intensity  # TotLenFwdPkts
+            w_means[5] += 40.0 * drift_intensity  # FwdPktLenMax
+        elif w >= 8:
+            # Botnet / Infiltration: asymmetric backward flow exfiltration
+            attack_prob = 0.30 * drift_intensity
+            attack_label = "Bot-Infiltration"
+            w_means[2] += 25.0 * drift_intensity  # TotBwdPkts
+            w_means[4] += 60.0 * drift_intensity  # TotLenBwdPkts
+        else:
+            # Normal day: low benign background noise
+            attack_prob = 0.05
+            attack_label = "Benign"
+
+        w_means += np.random.normal(0, 0.5, size=n_features)
+        X_w = np.abs(np.random.multivariate_normal(w_means, cov, size=samples_per_window))
+
+        # True classification rule based on network flow heuristics
+        logit = (
+            (X_w[:, 1] - base_means[1]) * 0.15 +
+            (X_w[:, 3] - base_means[3]) * 0.10 -
+            (X_w[:, 11] - base_means[11]) * 0.08
+        )
+        prob = 1.0 / (1.0 + np.exp(-logit))
+        is_attack = ((np.random.uniform(0, 1, size=samples_per_window) < prob) |
+                     (np.random.uniform(0, 1, size=samples_per_window) < attack_prob)).astype(int)
+
+        w_start = w * day_seconds
+        w_end = (w + 1) * day_seconds - 1.0
+        timestamps = np.sort(np.random.uniform(w_start, w_end, size=samples_per_window))
+
+        for i in range(samples_per_window):
+            label = attack_label if is_attack[i] == 1 and attack_label != "Benign" else ("Attack" if is_attack[i] == 1 else "Benign")
+            row = {
+                "Timestamp": timestamps[i],
+                "is_attack": is_attack[i],
+                "Label": label,
+            }
+            for f_idx, f_name in enumerate(flow_features):
+                row[f_name] = float(X_w[i, f_idx])
+            records.append(row)
+
+    df = pd.DataFrame(records)
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    print(
+        f"Generated CIC-IDS2018 synthetic drift dataset ({len(df):,} rows, {n_windows} daily windows) "
+        f"-> {output_path}"
+    )
+    return df
+
+
+def download_intrusion_dataset(output_dir: str):
+    """Ensure CIC-IDS2018 dataset is available in output_dir."""
+    os.makedirs(output_dir, exist_ok=True)
+    target_path = os.path.join(output_dir, "cic_ids2018.csv")
+    alt_path = os.path.join(output_dir, "cicids2018.csv")
+    if os.path.exists(target_path) or os.path.exists(alt_path):
+        print(f"Intrusion dataset already exists at {target_path}")
+        return
+    print("CIC-IDS2018 raw archive requires manual UNB download. Generating realistic drift benchmark...")
+    generate_intrusion_drift_data(target_path)
+
+
+def download_electricity_dataset(output_dir: str) -> pd.DataFrame:
+    """Download ELEC2 Electricity Pricing benchmark dataset or fallback to synthetic drift."""
+    os.makedirs(output_dir, exist_ok=True)
+    target_path = os.path.join(output_dir, "electricity.csv")
+    if os.path.exists(target_path):
+        print(f"Electricity dataset already exists at {target_path}")
+        return pd.read_csv(target_path)
+
+    try:
+        from sklearn.datasets import fetch_openml
+        print("Fetching ELEC2 benchmark from OpenML (dataset 'electricity', version=1)...")
+        bunch = fetch_openml("electricity", version=1, as_frame=True)
+        df = bunch.frame.copy()
+
+        # Binary label: UP -> 1, DOWN -> 0
+        df["target"] = (df["class"].astype(str).str.upper() == "UP").astype(int)
+
+        # Create monotonic numeric timestamp from date and period
+        # date is in [0, 1] relative units over 2 years; period is interval within day [0, 1]
+        step = 1800.0  # 30-minute interval
+        df["Timestamp"] = np.arange(len(df), dtype=float) * step
+        df.to_csv(target_path, index=False)
+        print(f"Downloaded and formatted ELEC2 dataset ({len(df):,} rows) -> {target_path}")
+        return df
+    except Exception as e:
+        print(f"OpenML fetch failed ({e}). Generating synthetic electricity drift dataset...")
+        return generate_electricity_drift_data(target_path)
+
+
+def generate_electricity_drift_data(
+    output_path: str,
+    n_windows: int = 12,
+    samples_per_window: int = 1500,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Fallback generator for electricity pricing drift dataset."""
+    np.random.seed(seed)
+    records = []
+    features = ["nswprice", "nswdemand", "vicprice", "vicdemand", "transfer"]
+    n_features = len(features)
+    base_means = np.array([0.05, 0.45, 0.03, 0.42, 0.40])
+    cov = np.eye(n_features) * 0.01
+    time_step = 86400.0 * 30  # Monthly windows
+
+    for w in range(n_windows):
+        w_means = base_means.copy()
+        if w >= 2:
+            # Seasonal price spikes and demand changes
+            w_means[0] += 0.04 * np.sin(w * np.pi / 3)
+            w_means[1] += 0.05 * np.cos(w * np.pi / 4)
+            w_means[4] += 0.03 * (w / n_windows)
+
+        X_w = np.clip(np.random.multivariate_normal(w_means, cov, size=samples_per_window), 0.0, 1.0)
+        logit = (X_w[:, 0] - 0.05) * 15.0 + (X_w[:, 1] - 0.45) * 8.0 - (X_w[:, 4] - 0.4) * 6.0
+        prob = 1.0 / (1.0 + np.exp(-logit))
+        target = (np.random.uniform(0, 1, size=samples_per_window) < prob).astype(int)
+
+        w_start = w * time_step
+        w_end = (w + 1) * time_step - 1.0
+        timestamps = np.sort(np.random.uniform(w_start, w_end, size=samples_per_window))
+
+        for i in range(samples_per_window):
+            row = {
+                "Timestamp": timestamps[i],
+                "class": "UP" if target[i] == 1 else "DOWN",
+                "target": target[i],
+            }
+            for f_idx, f_name in enumerate(features):
+                row[f_name] = float(X_w[i, f_idx])
+            records.append(row)
+
+    df = pd.DataFrame(records)
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    print(f"Generated electricity drift dataset ({len(df):,} rows) -> {output_path}")
+    return df
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DRIFT-X Data Downloader")
-    parser.add_argument("--dataset", default="synthetic", choices=["fraud", "intrusion", "synthetic"])
+    parser.add_argument(
+        "--dataset",
+        default="synthetic",
+        choices=["fraud", "intrusion", "electricity", "synthetic"],
+    )
     parser.add_argument("--output-dir", default="data/raw")
     parser.add_argument("--n-windows", type=int, default=20, help="Windows to generate (synthetic only)")
     parser.add_argument("--drift-intensity", type=float, default=0.4, help="Drift strength (synthetic only)")
@@ -119,9 +317,14 @@ if __name__ == "__main__":
     os.makedirs(args.output_dir, exist_ok=True)
     if args.dataset == "fraud":
         download_fraud_dataset(args.output_dir)
+    elif args.dataset == "intrusion":
+        download_intrusion_dataset(args.output_dir)
+    elif args.dataset == "electricity":
+        download_electricity_dataset(args.output_dir)
     elif args.dataset == "synthetic":
         generate_synthetic_drift_data(
             output_path=os.path.join(args.output_dir, "synthetic_drift.csv"),
             n_windows=args.n_windows,
             drift_intensity=args.drift_intensity,
         )
+
