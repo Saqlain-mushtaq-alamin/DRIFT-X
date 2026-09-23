@@ -102,19 +102,21 @@ class WindowSplitter:
         timestamps = df[self.timestamp_col]
         t_min, t_max = float(timestamps.min()), float(timestamps.max())
 
+        is_seconds = (t_max >= 86400.0) or ((t_max - t_min) >= 86400.0)
+
         if isinstance(self.window_size, int):
             edges = np.linspace(t_min, t_max + 1e-5, self.window_size + 1)
         elif self.window_size == "daily":
-            step = 1 * 86400.0 if t_max > 1e6 else 1.0
+            step = 86400.0 if is_seconds else 1.0
             edges = np.arange(t_min, t_max + step, step)
         elif self.window_size == "weekly":
-            step = 7 * 86400.0 if t_max > 1e6 else 7.0
+            step = 7 * 86400.0 if is_seconds else 7.0
             edges = np.arange(t_min, t_max + step, step)
         elif self.window_size == "monthly":
-            step = 30 * 86400.0 if t_max > 1e6 else 30.0
+            step = 30 * 86400.0 if is_seconds else 30.0
             edges = np.arange(t_min, t_max + step, step)
         elif self.window_size == "quarterly":
-            step = 90 * 86400.0 if t_max > 1e6 else 90.0
+            step = 90 * 86400.0 if is_seconds else 90.0
             edges = np.arange(t_min, t_max + step, step)
         else:
             raise ValueError(f"Invalid window_size setting: {self.window_size}")
