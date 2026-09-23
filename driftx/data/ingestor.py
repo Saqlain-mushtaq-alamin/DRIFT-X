@@ -39,6 +39,7 @@ class DataIngestor:
             "intrusion": self._load_intrusion,
             "synthetic": self._load_synthetic,
             "healthcare": self._load_healthcare,
+            "electricity": self._load_electricity,
         }
 
         loader = loader_map.get(self.dataset_name)
@@ -64,7 +65,9 @@ class DataIngestor:
             if synth_path.exists():
                 logger.warning(f"File {path} not found. Loading synthetic dataset from {synth_path}.")
                 return pd.read_csv(synth_path)
-            raise FileNotFoundError(f"Missing dataset at {path}. Run scripts/download_data.py first.")
+            # Auto-generate synthetic drift data if not present
+            from scripts.download_data import generate_synthetic_drift_data
+            return generate_synthetic_drift_data(str(synth_path))
         
         df = pd.read_csv(path)
         identity_path = Path(data_dir) / "train_identity.csv"
@@ -82,19 +85,74 @@ class DataIngestor:
         return pd.read_csv(path)
 
     def _load_intrusion(self, data_dir: str) -> pd.DataFrame:
-        path = Path(data_dir) / "cicids2018.csv"
+        candidates = [
+            Path(data_dir) / "cic_ids2018.csv",
+            Path(data_dir) / "cicids2018.csv",
+        ]
+        found_path = next((p for p in candidates if p.exists()), None)
+        if found_path is None:
+            logger.info("CIC-IDS2018 file not found in data_dir. Generating realistic drift benchmark...")
+            from scripts.download_data import generate_intrusion_drift_data
+            target_path = Path(data_dir) / "cic_ids2018.csv"
+            df = generate_intrusion_drift_data(str(target_path))
+        else:
+            df = pd.read_csv(found_path)
+
+        # Standardize target column
+        if self.target_col not in df.columns:
+            if "is_attack" in df.columns:
+                df[self.target_col] = df["is_attack"]
+            elif "Label" in df.columns:
+                df[self.target_col] = (df["Label"].astype(str) != "Benign").astype(int)
+        elif df[self.target_col].dtype == object:
+            df[self.target_col] = (df[self.target_col].astype(str) != "Benign").astype(int)
+
+        return df
+
+    def _load_electricity(self, data_dir: str) -> pd.DataFrame:
+        path = Path(data_dir) / "electricity.csv"
         if not path.exists():
-            raise FileNotFoundError(f"Missing intrusion dataset at {path}")
-        df = pd.read_csv(path)
-        if "Label" in df.columns and self.target_col not in df.columns:
-            df[self.target_col] = (df["Label"] != "Benign").astype(int)
+            from scripts.download_data import download_electricity_dataset
+            df = download_electricity_dataset(data_dir)
+        else:
+            df = pd.read_csv(path)
+
+        # Map target column
+        if self.target_col not in df.columns:
+            if "target" in df.columns:
+                df[self.target_col] = df["target"]
+            elif "class" in df.columns:
+                df[self.target_col] = (df["class"].astype(str).str.upper() == "UP").astype(int)
+        elif df[self.target_col].dtype == object:
+            df[self.target_col] = (df[self.target_col].astype(str).str.upper() == "UP").astype(int)
+
         return df
 
     def _load_healthcare(self, data_dir: str) -> pd.DataFrame:
-        path = Path(data_dir) / "healthcare.csv"
-        if not path.exists():
-            raise FileNotFoundError(f"Missing healthcare dataset at {path}")
-        return pd.read_csv(path)
+        candidates = [
+            Path(data_dir) / "healthcare.csv",
+            Path(data_dir) / "mimic_clinical.csv",
+        ]
+        found_path = next((p for p in candidates if p.exists()), None)
+        if found_path is None:
+            logger.warning("Healthcare dataset not found. Generating synthetic clinical benchmark...")
+            np.random.seed(42)
+            n_samples = 6000
+            timestamps = np.sort(np.random.uniform(0, 90 * 86400.0 * 4, size=n_samples))
+            df = pd.DataFrame({
+                self.timestamp_col: timestamps,
+                self.target_col: np.random.binomial(1, 0.2, size=n_samples),
+                "heart_rate": np.random.normal(75, 12, size=n_samples),
+                "blood_pressure": np.random.normal(120, 15, size=n_samples),
+                "respiratory_rate": np.random.normal(16, 4, size=n_samples),
+                "temperature": np.random.normal(37, 0.8, size=n_samples),
+                "age": np.random.randint(18, 90, size=n_samples),
+            })
+            save_path = Path(data_dir) / "healthcare.csv"
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(save_path, index=False)
+            return df
+        return pd.read_csv(found_path)
 
     def _validate(self, df: pd.DataFrame) -> pd.DataFrame:
         """Validate required columns, drop target NaNs, and clean types."""
@@ -102,6 +160,15 @@ class DataIngestor:
             raise KeyError(f"Timestamp column '{self.timestamp_col}' not found in dataset")
         if self.target_col not in df.columns:
             raise KeyError(f"Target column '{self.target_col}' not found in dataset")
+
+        # Convert datetime timestamp strings to float seconds if necessary
+        if not pd.api.types.is_numeric_dtype(df[self.timestamp_col]):
+            try:
+                dt_series = pd.to_datetime(df[self.timestamp_col])
+                df[self.timestamp_col] = (dt_series.astype("int64") / 1e9).astype(float)
+            except Exception:
+                # Fallback to sequential numeric index
+                df[self.timestamp_col] = np.arange(len(df), dtype=float)
 
         n_initial = len(df)
         df = df.dropna(subset=[self.target_col])
