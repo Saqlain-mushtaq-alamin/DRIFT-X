@@ -34,7 +34,7 @@ class WindowSplitter:
             config: Dictionary containing:
                 - timestamp_col: str
                 - target_col: str
-                - window_size: str ("weekly", "monthly", "quarterly") or int (num windows)
+                - window_size: str ("daily", "weekly", "monthly", "quarterly") or int (num windows)
                 - min_window_samples: int
         """
         self.timestamp_col = config["timestamp_col"]
@@ -104,6 +104,9 @@ class WindowSplitter:
 
         if isinstance(self.window_size, int):
             edges = np.linspace(t_min, t_max + 1e-5, self.window_size + 1)
+        elif self.window_size == "daily":
+            step = 1 * 86400.0 if t_max > 1e6 else 1.0
+            edges = np.arange(t_min, t_max + step, step)
         elif self.window_size == "weekly":
             step = 7 * 86400.0 if t_max > 1e6 else 7.0
             edges = np.arange(t_min, t_max + step, step)
