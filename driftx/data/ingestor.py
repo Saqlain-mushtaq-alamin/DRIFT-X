@@ -110,12 +110,16 @@ class DataIngestor:
         return df
 
     def _load_electricity(self, data_dir: str) -> pd.DataFrame:
-        path = Path(data_dir) / "electricity.csv"
-        if not path.exists():
+        candidates = [
+            Path(data_dir) / "electricity.csv",
+            Path("data/raw/electricity.csv"),
+        ]
+        found_path = next((p for p in candidates if p.exists()), None)
+        if found_path is not None:
+            df = pd.read_csv(found_path)
+        else:
             from scripts.download_data import download_electricity_dataset
             df = download_electricity_dataset(data_dir)
-        else:
-            df = pd.read_csv(path)
 
         # Map target column
         if self.target_col not in df.columns:
