@@ -47,6 +47,12 @@ class AdaptiveThresholdController:
         threshold, is_warmup, components = self._compute_threshold()
         should_retrain = bool(dis_value > threshold)
 
+        # Always record the DIS value, including retrain-triggering spikes.
+        # Excluding spikes (as was previously attempted) prevented the ATC from
+        # accumulating enough history to exit warmup under strong drift — every
+        # triggered window was excluded, so dis_history stayed empty permanently.
+        # The spike IS the informative event: it tells the ATC what a high-DIS
+        # window looks like so the adaptive threshold is calibrated accordingly.
         self.dis_history.append(dis_value)
 
         result = {
