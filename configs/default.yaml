@@ -33,9 +33,9 @@ explainability:
   rank_change_threshold: 0.035   # Fixed threshold for P4 (80th pct of observed 1-Spearman-ρ scores)
 
 fusion:
-  alpha: 0.3                    # Weight for statistical drift
-  beta: 0.3                     # Weight for SHAP magnitude
-  gamma: 0.4                    # Weight for SHAP rank-change
+  alpha: 0.4                    # Weight for statistical drift (most reliable signal)
+  beta: 0.4                     # Weight for SHAP magnitude (stable; best single-signal baseline)
+  gamma: 0.2                    # Weight for SHAP rank-change (noisy; empirically down-weighted)
   adaptive_lookback: 3          # k: number of past windows for adaptive threshold
   adaptive_lambda: 1.5          # λ: sensitivity for adaptive threshold
 
