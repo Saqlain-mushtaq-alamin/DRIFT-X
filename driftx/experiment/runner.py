@@ -168,7 +168,7 @@ class ExperimentRunner:
                 threshold=self.config.get("detection", {}).get("psi_threshold", 0.2)
             )
         
-        shap_computer = ShapComputer(self.config["explainability"])
+        shap_computer = ShapComputer(self.config["explainability"], seed=seed)
         mag_tracker = MagnitudeTracker(
             threshold=self.config["explainability"].get(
                 "magnitude_threshold", 0.1
@@ -334,6 +334,16 @@ class ExperimentRunner:
                     # Reset SHAP trackers
                     mag_tracker.reset()
                     rank_tracker.reset()
+
+                    # Neither the normalizer nor the ATC is reset on retrain.
+                    # - Normalizer: signal scales (KS stat, SHAP L1/2, Spearman rho)
+                    #   are properties of the data/feature set, not the model.
+                    #   Resetting on retrain introduced two-window warmup gaps where
+                    #   DIS=raw-values (tiny), collapsing the ATC history to zeros
+                    #   and driving theta to min_threshold (false Pareto collapse).
+                    # - ATC: must accumulate DIS history across epochs to exit warmup.
+                    #   Post-retrain DIS values (low drift, just trained) are valid
+                    #   signal that rightfully pull the adaptive threshold downward.
                     
                     # Re-compute SHAP for new model
                     shap_result = shap_computer.compute(
@@ -369,6 +379,12 @@ class ExperimentRunner:
                     "shap_rank_change_score": rank_result["rank_change_score"],
                     "dis": dis_result["dis"],
                     "threshold": atc_result["threshold"],
+                    # Fusion hyperparameters — logged for full reproducibility (Bug 6 fix)
+                    "alpha": self.config["fusion"]["alpha"],
+                    "beta": self.config["fusion"]["beta"],
+                    "gamma": self.config["fusion"]["gamma"],
+                    "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.5),
+                    "lookback_k": self.config["fusion"].get("adaptive_lookback", 3),
                 }
                 run_results.append(row)
                 
