@@ -62,7 +62,12 @@ class SignalNormalizer:
         self.history["rank_change"].append(float(rank))
 
         if len(self.history["stat"]) <= self.warmup_windows:
-            # Not enough history yet — pass raw values through unchanged.
+            # Not enough history yet for stable min/max — pass raw values through.
+            # During the initial warmup (only the first warmup_windows windows of the
+            # entire run, since we no longer reset on retrain) the normalizer has too
+            # little history to be useful.  Raw values on their natural scales are
+            # passed to DIS; the warmup_threshold in the ATC is set conservatively
+            # enough to handle this.
             return {"stat": float(stat), "magnitude": float(mag), "rank_change": float(rank)}
 
         return {
@@ -84,6 +89,9 @@ class SignalNormalizer:
     def _normalize(vals: List[float], current: float) -> float:
         mn, mx = min(vals), max(vals)
         if (mx - mn) < 1e-10:
-            # All observed values are identical — return neutral mid-point.
+            # All observed values are identical — the channel shows no relative
+            # variation.  Return the neutral mid-point (0.5) so that this channel
+            # contributes a stable, non-zero weight without biasing the DIS
+            # toward spurious retrains (1.0) or silent suppression (0.0).
             return 0.5
         return float(np.clip((current - mn) / (mx - mn), 0.0, 1.0))
