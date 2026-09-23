@@ -112,5 +112,118 @@ def generate_paper_tables(results_path: Optional[str] = None):
     return table_df
 
 
+def generate_cross_dataset_table(
+    dataset_results_map: Optional[dict] = None,
+    output_dir: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Generate Cross-Dataset Results Table comparing P0, P2, and P5 performance across domains.
+
+    Args:
+        dataset_results_map: Dict mapping dataset name (e.g. 'Fraud', 'Intrusion', 'Electricity')
+            to either a file path (str/Path) or a loaded pd.DataFrame.
+        output_dir: Directory to save the output tables. Defaults to 'results/'.
+
+    Returns:
+        pd.DataFrame containing the cross-dataset comparison table.
+    """
+    results_base = Path(output_dir) if output_dir else PROJECT_ROOT / "results"
+    results_base.mkdir(parents=True, exist_ok=True)
+
+    if dataset_results_map is None:
+        dataset_results_map = {}
+        # Candidate paths
+        candidates = {
+            "Fraud": [results_base / "experiment_results_fraud.csv", results_base / "experiment_results.csv"],
+            "Intrusion": [results_base / "experiment_results_intrusion.csv"],
+            "Electricity": [results_base / "experiment_results_electricity.csv"],
+        }
+        for name, paths in candidates.items():
+            for p in paths:
+                if p.exists():
+                    dataset_results_map[name] = p
+                    break
+
+    rows = []
+    for ds_name, source in dataset_results_map.items():
+        if isinstance(source, pd.DataFrame):
+            df = source
+        else:
+            p = Path(source)
+            if not p.exists():
+                logger.warning(f"Results file for '{ds_name}' not found at {p}. Skipping.")
+                continue
+            df = pd.read_csv(p)
+
+        def get_policy_stats(policy_id: str):
+            p_df = df[df["policy"] == policy_id]
+            if p_df.empty:
+                return {"acc_str": "N/A", "retrains": "N/A", "cost": "N/A"}
+            per_seed = p_df.groupby("seed").agg({
+                "accuracy": "mean",
+                "cumulative_cost": "last",
+                "cumulative_retrains": "last",
+            })
+            m_acc = per_seed["accuracy"].mean()
+            s_acc = per_seed["accuracy"].std() if len(per_seed) > 1 else 0.0
+            m_cost = per_seed["cumulative_cost"].mean()
+            m_retrains = per_seed["cumulative_retrains"].mean()
+            return {
+                "acc_str": f"{m_acc:.4f} ± {s_acc:.4f}" if len(per_seed) > 1 else f"{m_acc:.4f}",
+                "retrains": f"{m_retrains:.1f}",
+                "cost": f"{m_cost:.2f}s",
+            }
+
+        p0_stats = get_policy_stats("p0_never")
+        p2_stats = get_policy_stats("p2_drift_only")
+        p5_stats = get_policy_stats("p5_dis_fused")
+
+        rows.append({
+            "Dataset": ds_name,
+            "P0 Acc": p0_stats["acc_str"],
+            "P2 Acc": p2_stats["acc_str"],
+            "P5 Acc": p5_stats["acc_str"],
+            "P5 Retrains": p5_stats["retrains"],
+            "P5 Cost": p5_stats["cost"],
+        })
+
+    cross_df = pd.DataFrame(rows)
+    if cross_df.empty:
+        logger.warning("No dataset results available to compile cross-dataset table.")
+        return cross_df
+
+    # Save LaTeX table
+    latex_str = cross_df.to_latex(
+        index=False,
+        caption="Cross-Dataset Multi-Domain Generalization Benchmark (DRIFT-X)",
+        label="tab:cross_dataset_results",
+    )
+    latex_path = results_base / "cross_dataset_table.tex"
+    with open(latex_path, "w", encoding="utf-8") as f:
+        f.write(latex_str)
+
+    # Save Markdown table
+    md_str = cross_df.to_markdown(index=False)
+    md_path = results_base / "cross_dataset_table.md"
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(md_str + "\n")
+
+    logger.info(f"✓ Saved Cross-Dataset LaTeX table to {latex_path}")
+    logger.info(f"✓ Saved Cross-Dataset Markdown table to {md_path}")
+
+    def _safe_print(text: str) -> None:
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            print(text.encode("ascii", errors="backslashreplace").decode("ascii"))
+
+    _safe_print("\n=== DRIFT-X Cross-Dataset Generalization Results ===")
+    _safe_print(md_str)
+
+    return cross_df
+
+
 if __name__ == "__main__":
     generate_paper_tables()
+    generate_cross_dataset_table()
+
