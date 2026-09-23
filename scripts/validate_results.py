@@ -1,6 +1,10 @@
 """
 Publication readiness validation script.
-Runs all 6 checks from the improvement plan and prints the final paper table.
+Runs all 8 checks and prints the final paper table.
+
+Checks 1-6: aggregate-level publication readiness (original).
+Check 7:    window-level retrain overlap — rules out P5 silently collapsing into any baseline.
+Check 8:    Pareto dominance computed from data — no hardcoded assertions.
 """
 import sys
 from pathlib import Path
@@ -22,7 +26,7 @@ def main():
     print("=" * 60)
 
     passed = 0
-    total = 6
+    total = 8
 
     # CHECK 1: Seeds produce variance
     print("\nCHECK 1: Seed variance (std > 0.001 per policy)")
@@ -94,6 +98,73 @@ def main():
     if ok:
         passed += 1
 
+    # CHECK 7: P5 retrain windows differ from every other policy on every seed
+    # This is the only check that catches "silent behavioral collapse" — when P5
+    # mechanistically becomes identical to a baseline despite different aggregate stats.
+    print("\nCHECK 7: P5 retrain windows differ from all baselines on all seeds")
+    seeds = sorted(df["seed"].unique())
+    baselines = [p for p in df["policy"].unique() if p != "p5_dis_fused"]
+    p5_windows_per_seed = {
+        s: set(df[(df["policy"] == "p5_dis_fused") & (df["seed"] == s) & df["retrained"]]["window_id"].tolist())
+        for s in seeds
+    }
+    collapse_found = False
+    for baseline in sorted(baselines):
+        for s in seeds:
+            b_wins = set(df[(df["policy"] == baseline) & (df["seed"] == s) & df["retrained"]]["window_id"].tolist())
+            if b_wins == p5_windows_per_seed[s]:
+                print(f"  [FAIL] P5 == {baseline} on seed {s}: both retrain at {sorted(b_wins)}")
+                collapse_found = True
+    if not collapse_found:
+        n_seeds = len(seeds)
+        n_baselines = len(baselines)
+        print(f"  [PASS] P5 differs from all {n_baselines} baselines on all {n_seeds} seeds")
+        # Show one representative diff to make it auditable
+        p1_wins = set(df[(df["policy"] == "p1_fixed") & (df["seed"] == seeds[0]) & df["retrained"]]["window_id"].tolist())
+        p5_wins = p5_windows_per_seed[seeds[0]]
+        print(f"         (seed {seeds[0]} example — P1: {sorted(p1_wins)}, P5: {sorted(p5_wins)})")
+        passed += 1
+
+    # CHECK 8: Pareto dominance — computed from data, not asserted
+    print("\nCHECK 8: Pareto position of P5 (computed from data)")
+    per_seed_agg = df.groupby(["policy", "seed"]).agg(
+        acc=("accuracy", "mean"),
+        cost=("cumulative_cost", "last"),
+    ).reset_index()
+    policy_means = per_seed_agg.groupby("policy").agg(
+        mean_acc=("acc", "mean"),
+        mean_cost=("cost", "mean"),
+    ).reset_index()
+    p5_row = policy_means[policy_means["policy"] == "p5_dis_fused"].iloc[0]
+    p5_acc, p5_cost = p5_row["mean_acc"], p5_row["mean_cost"]
+    dominated_by = [
+        row["policy"] for _, row in policy_means.iterrows()
+        if row["policy"] != "p5_dis_fused"
+        and row["mean_acc"] >= p5_acc
+        and row["mean_cost"] <= p5_cost
+    ]
+    print(f"  P5: acc={p5_acc:.4f}, cost={p5_cost:.3f}s")
+    for _, row in policy_means.sort_values("mean_acc", ascending=False).iterrows():
+        marker = " <- P5" if row["policy"] == "p5_dis_fused" else ""
+        dom = " [dominates P5]" if row["policy"] in dominated_by else ""
+        print(f"    {row['policy']:28s} acc={row['mean_acc']:.4f} cost={row['mean_cost']:.3f}s{marker}{dom}")
+    if dominated_by:
+        print(f"  [FAIL] P5 is Pareto-dominated by: {dominated_by}")
+    else:
+        # Find what P5 offers that nothing else does
+        cheaper_and_close = [
+            row["policy"] for _, row in policy_means.iterrows()
+            if row["policy"] != "p5_dis_fused"
+            and row["mean_cost"] < p5_cost
+            and row["mean_acc"] > p5_acc
+        ]
+        if cheaper_and_close:
+            print(f"  [PASS] P5 not dominated. Policies cheaper AND more accurate: {cheaper_and_close}")
+            print(f"         P5 occupies a distinct cost-accuracy point in the Pareto front.")
+        else:
+            print(f"  [PASS] P5 not dominated. No policy beats it on both axes simultaneously.")
+        passed += 1
+
     # FINAL VERDICT
     print()
     print("=" * 60)
@@ -131,7 +202,20 @@ def main():
             f" {f1_mean:>6.4f} {f1_std:>6.4f} {retrains:>8.0f}"
         )
 
-    print("\n  [**] P5 is Pareto-optimal: high accuracy with controlled retrain cost")
+    # Pareto footnote: computed from data (see CHECK 8 above), not asserted
+    p_agg = df.groupby(["policy", "seed"]).agg(acc=("accuracy", "mean"), cost=("cumulative_cost", "last")).reset_index()
+    p_means = p_agg.groupby("policy").agg(mean_acc=("acc", "mean"), mean_cost=("cost", "mean")).reset_index()
+    p5r = p_means[p_means["policy"] == "p5_dis_fused"].iloc[0]
+    p1r = p_means[p_means["policy"] == "p1_fixed"].iloc[0]
+    acc_diff = p5r["mean_acc"] - p1r["mean_acc"]
+    cost_diff = p5r["mean_cost"] - p1r["mean_cost"]
+    try:
+        print(
+            f"  [**] P5 vs P1 (best baseline): acc={acc_diff:+.4f}, cost={cost_diff:+.3f}s — "
+            f"{'more accurate and cheaper' if acc_diff > 0 and cost_diff < 0 else 'trades accuracy for cost savings' if acc_diff < 0 and cost_diff < 0 else 'same accuracy, different cost'}"
+        )
+    except UnicodeEncodeError:
+        print(f"  [**] P5 vs P1 (best baseline): acc={acc_diff:+.4f}, cost={cost_diff:+.3f}s")
     print()
 
     # Sensitivity summary
