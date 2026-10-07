@@ -6,11 +6,16 @@ project:
   n_seeds: 5                    # Number of random seeds for experiments
 
 data:
-  dataset: "fraud"              # Options: fraud, intrusion, healthcare
+  dataset: "fraud"              # Options: fraud, intrusion, healthcare, electricity
   timestamp_col: "TransactionDT" # Varies per dataset
   target_col: "isFraud"
   window_size: "monthly"        # Options: weekly, monthly, quarterly
   min_window_samples: 1000      # Skip windows with fewer samples
+  # Provenance field: "real" for actual datasets (ELEC2), "synthetic" for generated
+  # streams.  Always set this to "synthetic" unless you are using the true ELEC2
+  # OpenML download.  This field propagates to every result row so downstream
+  # analysis can filter by data provenance.
+  data_source_type: "synthetic"  # IMPORTANT: fraud & intrusion streams are SYNTHETIC
 
 model:
   type: "xgboost"               # Options: xgboost, random_forest, gradient_boosting
@@ -29,15 +34,20 @@ detection:
 explainability:
   shap_method: "tree"           # Options: tree, kernel, sampling
   max_shap_samples: 500         # Subsample for SHAP computation speed
-  magnitude_threshold: 0.030     # Fixed threshold for P3 (75th pct of observed normalised L1 scores)
-  rank_change_threshold: 0.035   # Fixed threshold for P4 (80th pct of observed 1-Spearman-ρ scores)
+  # NOTE: these thresholds were originally derived from percentiles of observed
+  # in-sample scores on the same streams used for evaluation.  They must be
+  # re-tuned on held-out / separate streams before being used for honest reporting.
+  magnitude_threshold: 0.030     # P3 threshold (requires independent tuning validation)
+  rank_change_threshold: 0.035   # P4 threshold (requires independent tuning validation)
 
 fusion:
-  alpha: 0.4                    # Weight for statistical drift (most reliable signal)
-  beta: 0.4                     # Weight for SHAP magnitude (stable; best single-signal baseline)
-  gamma: 0.2                    # Weight for SHAP rank-change (noisy; empirically down-weighted)
+  alpha: 0.4                    # Weight for statistical drift
+  beta: 0.4                     # Weight for SHAP magnitude
+  gamma: 0.2                    # Weight for SHAP rank-change
+  # NOTE: alpha/beta/gamma weights and adaptive_lambda/lookback were selected
+  # after inspecting results on the same streams.  Re-validate on held-out data.
   adaptive_lookback: 3          # k: number of past windows for adaptive threshold
-  adaptive_lambda: 1.5          # λ: sensitivity for adaptive threshold
+  adaptive_lambda: 1.5          # lambda: sensitivity for adaptive threshold
 
 policy:
   fixed_schedule_interval: 3    # Retrain every N windows for P1
@@ -55,7 +65,11 @@ evaluation:
     - "f1_weighted"
     - "precision_weighted"
     - "recall_weighted"
-  cost_metric: "wall_clock_seconds"
+  # Primary cost metric is retrain_count (count of retrains, timing-noise-free).
+  # wall_clock_seconds is recorded but should not be used as the primary cost
+  # comparator because training time varies with model version, data order, and
+  # OS scheduling noise.
+  cost_metric: "retrain_count"  # primary: count; secondary: wall_clock_seconds
 
 mlflow:
   tracking_uri: "mlruns"        # Local MLflow directory
