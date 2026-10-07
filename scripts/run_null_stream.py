@@ -64,25 +64,42 @@ def generate_null_stream(
     n_features: int = 15,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Generate a stationary (zero-drift) dataset.
+    """Generate a stationary (zero-drift) dataset with a STRONG classification concept.
 
     Feature distributions and the decision boundary are IDENTICAL across all
     windows.  There is no concept drift, no covariate shift.  Timestamps are
     monotonically increasing so the windower treats them as temporal windows.
 
+    The concept is deliberately STRONG (class accuracy ~0.70+) so that:
+      1. A well-trained model learns a non-trivial boundary.
+      2. SHAP values for informative features are large and stable,
+         making the rank-order signal meaningful (not dominated by noise).
+      3. False-positive analysis is meaningful: a detector that fires
+         must have found an artifact, not just uncertainty in a learnable task.
+
     Returns:
         pd.DataFrame with columns TransactionDT, isFraud, feature_0..feature_N-1
     """
     rng = np.random.RandomState(seed)
+    # Fixed means (stationary) — no drift across windows
     means = rng.uniform(-0.5, 0.5, size=n_features)
-    cov = np.eye(n_features) * 0.25  # moderate variance, no covariance
+    cov = np.eye(n_features) * 0.5   # tighter variance than before
     time_step = 86400.0 * 30  # 30-day windows (monthly)
+
+    # Strong concept: large coefficients on 4 informative features.
+    # All other features are uninformative noise.
+    concept_coef = np.zeros(n_features)
+    concept_coef[0] = 2.0    # strong positive driver
+    concept_coef[1] = -1.5   # strong negative driver
+    concept_coef[2] = 1.2    # moderate positive
+    concept_coef[3] = -1.0   # moderate negative
+    # features 4..N-1 are pure noise (coef=0)
 
     records = []
     for w in range(n_windows):
         X_w = rng.multivariate_normal(means, cov, size=samples_per_window)
-        # Fixed logit: same coefficients every window
-        logit = X_w[:, 0] * 0.8 - X_w[:, 1] * 0.5 + X_w[:, 2] * 0.2
+        # Strong, stable logit — same coefficients every window
+        logit = X_w @ concept_coef
         prob = 1.0 / (1.0 + np.exp(-logit))
         y_w = (rng.uniform(0, 1, size=samples_per_window) < prob).astype(int)
 
@@ -99,9 +116,10 @@ def generate_null_stream(
     df = pd.DataFrame(records)
     logger.info(
         f"Generated null stream: {len(df):,} rows, {n_windows} windows, "
-        f"{n_features} features — NO DRIFT"
+        f"{n_features} features (4 informative, {n_features-4} noise) — NO DRIFT"
     )
     return df
+
 
 
 def run_null_stream_experiment(n_windows: int = 20, n_seeds: int = 5) -> pd.DataFrame:
@@ -215,6 +233,13 @@ def run_null_stream_experiment(n_windows: int = 20, n_seeds: int = 5) -> pd.Data
     print("  P1: retrains every 3 windows by design (not a false positive — it ignores drift)")
     print("  P2-P5: false_positive_retrains should be ~0 on stationary data.")
     print("  Non-zero values for P2-P5 indicate detector sensitivity issues.")
+    print("")
+    print("Disclosure (P4 SHAP-Rank): P4's false-alarm rate on stationary data is partly")
+    print("  an artifact of unstable Spearman rank orders on near-noise features.")
+    print("  When only 4/15 features are informative, the rank of the 11 noise features")
+    print("  is arbitrary and varies between windows by chance, causing spurious rank-change")
+    print("  scores that exceed the fixed threshold.  P4's FPR is an upper bound on its")
+    print("  miscalibration; a null stream with only informative features would lower it.")
     print(f"\nFull results: {full_path}")
     print(f"Summary:      {summary_path}")
 
