@@ -121,6 +121,34 @@ class DataIngestor:
             from scripts.download_data import download_electricity_dataset
             df = download_electricity_dataset(data_dir)
 
+        # ---------------------------------------------------------------
+        # ELEC2 integrity guard — only runs when data_source_type == "real"
+        # ---------------------------------------------------------------
+        # The canonical OpenML ELEC2 dataset has exactly 45,312 rows.
+        # If the OpenML fetch silently fell back to the synthetic generator
+        # the row count will be much smaller (typically 12,000–18,000).
+        # We fail loudly so a synthetic result is never reported as real-data
+        # ELEC2 evidence.
+        #
+        # This guard is SKIPPED for synthetic fallback data (data_source_type
+        # == "synthetic") so development and CI runs work without OpenML.
+        is_real = self.config.get("data_source_type", "synthetic") == "real"
+        ELEC2_ROW_COUNT = 45_312
+        if is_real:
+            if len(df) != ELEC2_ROW_COUNT:
+                raise AssertionError(
+                    f"ELEC2 integrity check failed: expected {ELEC2_ROW_COUNT} rows "
+                    f"from the canonical OpenML download, got {len(df)} rows. "
+                    "This almost certainly means the OpenML fetch fell back to the "
+                    "synthetic generator. Set data_source_type='synthetic' in the "
+                    "config if you are using generated data, or fix the OpenML "
+                    "download before reporting results as organic-drift evidence."
+                )
+            logger.info(
+                f"ELEC2 integrity check passed: {len(df)} rows "
+                "(canonical OpenML dataset confirmed)"
+            )
+
         # Map target column
         if self.target_col not in df.columns:
             if "target" in df.columns:
@@ -131,6 +159,7 @@ class DataIngestor:
             df[self.target_col] = (df[self.target_col].astype(str).str.upper() == "UP").astype(int)
 
         return df
+
 
     def _load_healthcare(self, data_dir: str) -> pd.DataFrame:
         candidates = [
