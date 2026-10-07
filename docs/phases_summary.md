@@ -40,7 +40,7 @@ This document provides a detailed breakdown of the work completed across Phase 0
 ### Core Components Implemented
 - **`driftx.training.trainer.ModelTrainer`**:
   - Supports model training for `xgboost`, `random_forest`, and `gradient_boosting`.
-  - Calculates inside-window validation metrics (`accuracy`, `f1_weighted`, `precision_weighted`, `recall_weighted`).
+  - Calculates inside-window validation metrics (`accuracy`, `f1_weighted`, `precision_weighted`, `recall_weighted`) on a held-out 15% split *of the training window only*.
   - Tracks wall-clock model training cost (`cost_seconds`).
 
 - **`driftx.detection.ks_detector.KSDriftDetector`**:
@@ -131,6 +131,9 @@ This document provides a detailed breakdown of the work completed across Phase 0
 
 - **CSV Result Persistence & Smoke Testing**:
   - Saves full per-window run metrics to `results/experiment_results.csv`.
+  - Uses **test-then-train** (prequential) evaluation: the model is scored on
+    window `w` *before* any retrain on that window, ensuring out-of-sample
+    accuracy for every row in the output.
   - Includes synthetic data smoke test (`scripts/smoke_test.py`) for rapid pipeline validation.
 
 ### Verification
@@ -153,7 +156,8 @@ This document provides a detailed breakdown of the work completed across Phase 0
   - Evaluates 7 component weight configurations (`full_dis`, `stat_only`, `mag_only`, `rank_only`, `stat_mag`, `stat_rank`, `mag_rank`) to isolate signal contributions.
 
 - **Hyperparameter Sensitivity Engine (`scripts/run_sensitivity.py`)**:
-  - Grid search over threshold sensitivity $\lambda \in [0.5, 3.0]$ and lookback window $k \in [3, 10]$ for P5 robustness.
+  - Grid search over threshold sensitivity $\lambda \in [0.5, 3.0]$ and lookback window $k \in [2, 3, 5, 7]$ for P5 robustness.
+  - **Note**: these ranges match the code implementation exactly.  Parameters were selected after observing results on the same evaluation streams; results should be validated on held-out streams.
 
 - **Publication Table Generator (`scripts/generate_tables.py`)**:
   - Generates publication-ready LaTeX tables (`results/paper_table.tex`) and Markdown tables (`results/paper_table.md`).
@@ -166,9 +170,16 @@ This document provides a detailed breakdown of the work completed across Phase 0
 
 ## 🌐 Phase 8: Multi-Dataset Validation & Serving Layer
 
+> **Data provenance note**: Only the ELEC2 Electricity stream is a real-world
+> benchmark dataset (from OpenML).  The **Fraud** and **Intrusion** streams are
+> synthetically generated (see `scripts/download_data.py`) with programmatically
+> injected drift.  All tables and figures must clearly label these streams as
+> *Synthetic* to avoid claiming organic drift where none exists.  The `data_source_type`
+> field in every config and result row carries this provenance information.
+
 ### Core Components Implemented
 - **Multi-Dataset Ingestion & Adapters (`driftx.data.ingestor.DataIngestor`)**:
-  - **CIC-IDS2018 (`intrusion`)**: Supports loading raw daily network intrusion flow datasets or generating realistic organic drift traffic with evolving attack signatures (DoS, DDoS, Botnet, Infiltration).
+  - **CIC-IDS2018 (`intrusion`, Synthetic)**: Generates realistic drift traffic with evolving attack signatures (DoS, DDoS, Botnet, Infiltration) — **not** a real packet capture.
   - **Australian NSW Electricity (`electricity` / ELEC2)**: Ingests the classic organic concept drift benchmark from OpenML with 45,312 time-series instances, automated target normalization (`UP` $\rightarrow 1$, `DOWN` $\rightarrow 0$), and offline drift fallback generation.
   - **Dataset Configurations**: `configs/datasets/intrusion.yaml`, `configs/datasets/electricity.yaml`, and `configs/datasets/fraud.yaml`.
 
