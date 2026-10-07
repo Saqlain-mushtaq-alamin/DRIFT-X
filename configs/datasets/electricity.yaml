@@ -1,4 +1,7 @@
 # Australian New South Wales Electricity (ELEC2) Dataset Configuration
+# PROVENANCE: REAL dataset — downloaded from OpenML (electricity, version=1).
+# This is the ONLY real-world benchmark in the suite.  All other streams
+# (fraud, intrusion) are synthetically generated with injected drift.
 data:
   dataset: "electricity"
   name: "Australian NSW Electricity Market (ELEC2)"
@@ -7,6 +10,8 @@ data:
   window_size: "monthly"
   min_window_samples: 1000
   data_path: "data/raw/electricity.csv"
+  # Real dataset — organic concept drift, no injected drift parameters
+  data_source_type: "real"
 
 # Backward compatibility root keys
 dataset: "electricity"
@@ -16,3 +21,4 @@ target_col: "target"
 window_size: "monthly"
 min_window_samples: 1000
 data_path: "data/raw/electricity.csv"
+data_source_type: "real"
