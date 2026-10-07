@@ -121,16 +121,29 @@ class ExperimentRunner:
                 logger.warning(f"MLflow setup warning: {e}")
         
         all_results = []
+        timestamp_col = self.config.get("data", {}).get("timestamp_col", "TransactionDT")
         
         for policy_id, policy in policies.items():
             for seed in seeds:
                 logger.info(f"\n{'='*60}")
                 logger.info(f"Policy: {policy.name} | Seed: {seed}")
                 logger.info(f"{'='*60}")
+
+                # Apply per-seed data replicate shift if configured.
+                # When data_replicate_shift_windows > 0, each seed sees a
+                # different temporal slice of the data (distinct train/eval
+                # windows), not just a different model initialisation seed.
+                # This is a stronger variance estimate than model-seed-only.
+                if df_override is None and self.config.get("project", {}).get("data_replicate_shift_windows", 0) > 0:
+                    df_seed = self._make_replicate_df(df, seed, timestamp_col)
+                    splitter_seed = WindowSplitter(self.config["data"])
+                    windows_seed = splitter_seed.split(df_seed)
+                else:
+                    windows_seed = windows
                 
                 run_results = self._run_single(
                     policy=policy,
-                    windows=windows,
+                    windows=windows_seed,
                     seed=seed,
                 )
                 all_results.extend(run_results)
@@ -156,6 +169,9 @@ class ExperimentRunner:
     ) -> List[Dict]:
         """Run a single policy on all windows with a given seed."""
         np.random.seed(seed)
+        # NOTE: when using data_replicate_shift in the config, the runner
+        # receives different 'windows' objects per seed (shifted offsets),
+        # so the model sees genuinely different data replicates.
         
         # Override model seed if applicable
         model_config = copy.deepcopy(self.config["model"])
@@ -262,6 +278,8 @@ class ExperimentRunner:
                 "shap_rank_change_score": 0.0,
                 "dis": 0.0,
                 "threshold": 0.0,
+                # Warmup flag: window 0 is always the initial-train window.
+                "is_warmup": True,
                 # Provenance: is this dataset real or synthetic?
                 "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
             }
@@ -419,6 +437,11 @@ class ExperimentRunner:
                     "shap_rank_change_score": rank_result["rank_change_score"],
                     "dis": dis_result["dis"],
                     "threshold": atc_result["threshold"],
+                    # Whether the ATC was in warmup mode for this window.
+                    # True means the trigger came from the fixed warmup_threshold
+                    # (0.1), NOT from the adaptive μ+λσ formula.  Used downstream
+                    # to count warmup-driven vs truly adaptive retrains.
+                    "is_warmup": atc_result.get("is_warmup", False),
                     # Fusion hyperparameters — logged for full reproducibility
                     "alpha": self.config["fusion"]["alpha"],
                     "beta": self.config["fusion"]["beta"],
@@ -484,3 +507,50 @@ class ExperimentRunner:
         base_seed = self.config.get("project", {}).get("seed", 42)
         n_seeds = self.config.get("project", {}).get("n_seeds", 1)
         return [base_seed + i for i in range(n_seeds)]
+
+    def _make_replicate_df(
+        self,
+        df: pd.DataFrame,
+        seed: int,
+        timestamp_col: str,
+    ) -> pd.DataFrame:
+        """Shift the dataset's timestamp origin by a seed-specific offset.
+
+        This creates genuinely different data replicates per seed by sliding the
+        window boundaries, so each seed trains and evaluates on a different
+        temporal slice of the data rather than just varying the model seed.
+
+        Args:
+            df: Full dataset, already sorted by timestamp.
+            seed: Current seed value (used to compute shift magnitude).
+            timestamp_col: Name of the timestamp column.
+
+        Returns:
+            A copy of df with timestamps shifted by ``(seed - base_seed) * shift``.
+        """
+        base_seed = self.config.get("project", {}).get("seed", 42)
+        shift_windows = self.config.get("project", {}).get("data_replicate_shift_windows", 0)
+        if shift_windows == 0 or seed == base_seed:
+            return df
+
+        # Compute the span of one window in timestamp units.
+        # Approximate: total span / number of data points gives per-row step;
+        # multiplying by samples_per_window gives one window's timestamp width.
+        t_min = float(df[timestamp_col].min())
+        t_max = float(df[timestamp_col].max())
+        n_rows = max(len(df), 1)
+        # Estimate one-window duration as 1/n_windows of total span.
+        # Use a safe denominator.
+        est_n_windows = max(
+            self.config.get("data", {}).get("n_windows", 20), 1
+        )
+        one_window_span = (t_max - t_min) / est_n_windows
+        shift = (seed - base_seed) * shift_windows * one_window_span
+
+        df = df.copy()
+        df[timestamp_col] = df[timestamp_col] + shift
+        logger.info(
+            f"Data replicate shift applied for seed {seed}: "
+            f"+{shift:.0f} timestamp units ({shift_windows} windows)"
+        )
+        return df
