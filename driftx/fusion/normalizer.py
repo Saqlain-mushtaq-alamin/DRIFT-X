@@ -10,6 +10,11 @@ default warmup_threshold=0.3, so retraining never triggers.  This module
 scales each signal to [0, 1] based on its running min/max so that the fused
 DIS score occupies the full [0, 1] range and is therefore comparable to any
 reasonable threshold.
+
+IMPORTANT — Actual behaviour (corrected from earlier doc):
+  Warmup period:    raw values are passed through UNCHANGED (not zeroed).
+  Constant channel: returns 0.5 (neutral mid-point), NOT 0.0.
+See SignalNormalizer._normalize() for the implementation.
 """
 import numpy as np
 from typing import Dict, List
@@ -18,14 +23,23 @@ from typing import Dict, List
 class SignalNormalizer:
     """Normalizes DIS input signals to [0, 1] using running min-max scaling.
 
-    During a short warmup period the raw values are passed through unchanged
-    (there is not yet enough history to compute stable min/max).  Once at
-    least ``warmup_windows`` observations have been accumulated the scaler
-    uses the *full* observed range so that the normalised value reflects how
-    extreme the current reading is relative to everything seen so far.
+    **Warmup period** (first ``warmup_windows`` calls): raw values are passed
+    through *unchanged*.  There is not yet enough history to compute a stable
+    min/max, so the raw signal values on their natural scales are forwarded to
+    DIS.  The ATC warmup threshold is set conservatively enough to handle this.
+
+    **Post-warmup**: each channel is min-max scaled using the *full* observed
+    history, so the normalised value reflects how extreme the current reading
+    is relative to all history seen so far.
+
+    **Constant channel**: if all observed values for a channel are identical
+    (range < 1e-10), the normalised output is **0.5** — the neutral mid-point.
+    This prevents the channel from biasing DIS toward spurious retrains (1.0)
+    or silent suppression (0.0).
 
     Args:
-        warmup_windows: Minimum history size before normalisation activates.
+        warmup_windows: Minimum number of observations before normalisation
+            activates.  During warmup, raw values are returned as-is.
     """
 
     def __init__(self, warmup_windows: int = 2) -> None:
