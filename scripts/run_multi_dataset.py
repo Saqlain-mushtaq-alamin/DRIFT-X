@@ -26,7 +26,7 @@ DATASET_CONFIGS = {
 def run_multi_dataset(
     datasets: List[str] = None,
     policies: List[str] = None,
-    n_seeds: int = 1,
+    n_seeds: int = 3,
 ) -> Dict[str, Path]:
     """
     Run experiments across multiple datasets and generate a cross-dataset comparison table.
@@ -34,7 +34,9 @@ def run_multi_dataset(
     Args:
         datasets: List of datasets to run ('Fraud', 'Intrusion', 'Electricity').
         policies: Policies to evaluate (defaults to ['p0_never', 'p2_drift_only', 'p5_dis_fused']).
-        n_seeds: Number of random seeds per policy.
+        n_seeds: Number of random seeds per policy (default: 3).
+            Fraud and Intrusion are SYNTHETIC benchmarks, so we use 3 seeds to get
+            a meaningful std estimate.  Electricity uses whatever is passed.
 
     Returns:
         Dict mapping dataset name to results CSV path.
