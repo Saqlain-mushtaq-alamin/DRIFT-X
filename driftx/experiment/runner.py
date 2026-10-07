@@ -1,17 +1,24 @@
 """
 Main experiment orchestrator — runs the full DRIFT-X pipeline.
 
+Evaluation protocol: **test-then-train** (prequential evaluation).
+
 For each policy × each seed:
   1. Load data and create windows
-  2. Train initial model on window 0
-  3. For each subsequent window:
-     a. Evaluate current model (accuracy, F1)
-     b. Compute statistical drift
-     c. Compute SHAP values → magnitude + rank-change
+  2. Train initial model on window 0 (no accuracy logged — no prior model)
+  3. For each subsequent window w (w = 1..N):
+     a. EVALUATE current model on window w  ← out-of-sample (model has NOT seen w)
+     b. Compute statistical drift on window w
+     c. Compute SHAP values on window w
      d. Compute DIS (fused score)
      e. Ask the active policy: retrain?
-     f. If yes: retrain, log cost
+     f. If yes: retrain on window w, log cost
+        — the logged accuracy is the PRE-RETRAIN eval (honest, out-of-sample)
      g. Log everything to MLflow + CSV
+
+This protocol is the only way to get an honest comparison across policies with
+different retrain frequencies.  Policies that retrain more often are no longer
+artificially rewarded with in-sample accuracy inflation.
 """
 import copy
 import time
@@ -214,7 +221,10 @@ class ExperimentRunner:
                     logger.debug(f"MLflow log_params exception: {e}")
             
             # === WINDOW 0: Initial training (always) ===
-            logger.info(f"Window 0: Initial training")
+            # No accuracy is logged for window 0 — there is no prior model to
+            # evaluate before the first training run.  Logging NaN makes it
+            # explicit in downstream analysis that window 0 is train-only.
+            logger.info(f"Window 0: Initial training only (no prior model — accuracy=NaN)")
             train_metrics = trainer.train(
                 windows[0].X, windows[0].y
             )
@@ -231,44 +241,62 @@ class ExperimentRunner:
             mag_tracker.update_and_compare(shap_result["mean_abs_shap"])
             rank_tracker.update_and_compare(shap_result["mean_abs_shap"])
             
-            # Log window 0
+            # Log window 0 — accuracy is NaN (no evaluation possible yet).
             w0_row = {
                 "policy": policy.policy_id,
                 "policy_name": policy.name,
                 "seed": seed,
                 "window_id": 0,
-                "accuracy": train_metrics["val_accuracy"],
-                "f1": train_metrics["val_f1"],
+                # NaN: honest — no out-of-sample evaluation is possible
+                # on the window used for initial training.
+                "accuracy": float("nan"),
+                "f1": float("nan"),
                 "retrained": True,
                 "retrain_reason": "Initial training",
                 "cost_seconds": train_metrics["cost_seconds"],
                 "cumulative_cost": total_cost,
                 "cumulative_retrains": retrain_count,
+                "retrain_count": retrain_count,
                 "stat_drift_score": 0.0,
                 "shap_magnitude_score": 0.0,
                 "shap_rank_change_score": 0.0,
                 "dis": 0.0,
                 "threshold": 0.0,
+                # Provenance: is this dataset real or synthetic?
+                "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
             }
             run_results.append(w0_row)
             
             if mlflow is not None:
                 try:
                     mlflow.log_metrics({
-                        "accuracy_w0": train_metrics["val_accuracy"],
-                        "f1_w0": train_metrics["val_f1"],
+                        # Renamed: this is the in-training-window held-out val score,
+                        # NOT a prequential evaluation.  Using a distinct key prevents
+                        # it being averaged with the out-of-sample w1..N accuracy values.
+                        "train_val_accuracy_w0": train_metrics["val_accuracy"],
+                        "train_val_f1_w0": train_metrics["val_f1"],
                         "dis_w0": 0.0,
                     }, step=0)
                 except Exception as e:
                     logger.debug(f"MLflow log_metrics exception: {e}")
             
             # === WINDOWS 1..N: Evaluate, detect, decide ===
+            # Protocol: test-then-train (prequential / interleaved test-then-train).
+            # The model is FIRST evaluated on the new window (out-of-sample),
+            # THEN optionally retrained on that window.  The logged accuracy is
+            # always the PRE-RETRAIN evaluation — the only honest metric.
             for w_idx in range(1, len(windows)):
                 window = windows[w_idx]
                 logger.info(f"\n--- Window {w_idx} ---")
                 
-                # 1. Evaluate current model on this window
+                # 1. EVALUATE current model on this window BEFORE any retrain.
+                #    The model has been trained only on windows 0..(w-1), so
+                #    this is a genuine out-of-sample test.
                 eval_metrics = trainer.evaluate(window.X, window.y)
+                logger.info(
+                    f"  Pre-retrain eval: acc={eval_metrics['accuracy']:.4f}"
+                    f" (out-of-sample, model v{trainer.version})"
+                )
                 
                 # 2. Statistical drift detection
                 stat_drift = detector.detect(window.X)
@@ -319,7 +347,11 @@ class ExperimentRunner:
                     atc_result=atc_result,
                 )
                 
-                # 9. If retrain, do it
+                # 9. If the policy triggers a retrain, do it AFTER logging
+                #    eval_metrics (which are already out-of-sample and honest).
+                #    We do NOT overwrite eval_metrics after retraining — doing
+                #    so would produce in-sample accuracy and invalidate all
+                #    cross-policy comparisons.
                 retrain_cost = 0.0
                 if decision.should_retrain:
                     train_metrics = trainer.train(
@@ -329,13 +361,11 @@ class ExperimentRunner:
                     total_cost += retrain_cost
                     retrain_count += 1
                     
-                    # Re-evaluate after retraining
-                    eval_metrics = trainer.evaluate(window.X, window.y)
-                    
-                    # Update drift reference to new model dataset
+                    # Update drift reference to the newly trained window
                     detector.set_reference(window.X)
                     
-                    # Reset SHAP trackers
+                    # Reset SHAP trackers so next window is compared to
+                    # the new model's SHAP profile, not the old one.
                     mag_tracker.reset()
                     rank_tracker.reset()
 
@@ -349,7 +379,7 @@ class ExperimentRunner:
                     #   Post-retrain DIS values (low drift, just trained) are valid
                     #   signal that rightfully pull the adaptive threshold downward.
                     
-                    # Re-compute SHAP for new model
+                    # Re-compute SHAP for new model baseline
                     shap_result = shap_computer.compute(
                         trainer.get_model(), window.X
                     )
@@ -361,16 +391,20 @@ class ExperimentRunner:
                     )
                     
                     logger.info(
-                        f"  RETRAINED: cost={retrain_cost:.2f}s, "
-                        f"new_acc={eval_metrics['accuracy']:.4f}"
+                        f"  RETRAINED: cost={retrain_cost:.2f}s "
+                        f"(honest pre-retrain acc already logged: "
+                        f"{eval_metrics['accuracy']:.4f})"
                     )
                 
-                # 10. Log everything
+                # 10. Log everything.
+                #     eval_metrics here is ALWAYS the pre-retrain, out-of-sample
+                #     evaluation.  It was computed BEFORE any retrain on this window.
                 row = {
                     "policy": policy.policy_id,
                     "policy_name": policy.name,
                     "seed": seed,
                     "window_id": w_idx,
+                    # Honest out-of-sample accuracy: evaluated BEFORE any retrain
                     "accuracy": eval_metrics["accuracy"],
                     "f1": eval_metrics["f1_weighted"],
                     "retrained": decision.should_retrain,
@@ -378,17 +412,21 @@ class ExperimentRunner:
                     "cost_seconds": retrain_cost,
                     "cumulative_cost": total_cost,
                     "cumulative_retrains": retrain_count,
+                    # Primary cost metric: count of retrains (timing-noise-free)
+                    "retrain_count": retrain_count,
                     "stat_drift_score": stat_drift["drift_score"],
                     "shap_magnitude_score": mag_result["magnitude_score"],
                     "shap_rank_change_score": rank_result["rank_change_score"],
                     "dis": dis_result["dis"],
                     "threshold": atc_result["threshold"],
-                    # Fusion hyperparameters — logged for full reproducibility (Bug 6 fix)
+                    # Fusion hyperparameters — logged for full reproducibility
                     "alpha": self.config["fusion"]["alpha"],
                     "beta": self.config["fusion"]["beta"],
                     "gamma": self.config["fusion"]["gamma"],
                     "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.5),
                     "lookback_k": self.config["fusion"].get("adaptive_lookback", 3),
+                    # Provenance: is this dataset real or synthetic?
+                    "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
                 }
                 run_results.append(row)
                 
@@ -409,7 +447,9 @@ class ExperimentRunner:
                         "total_cost": total_cost,
                         "total_retrains": retrain_count,
                         "final_accuracy": run_results[-1]["accuracy"],
-                        "mean_accuracy": float(np.mean([r["accuracy"] for r in run_results])),
+                        # Use nanmean: window 0 has accuracy=NaN (no prior model),
+                        # so plain np.mean would propagate NaN to the summary metric.
+                        "mean_accuracy": float(np.nanmean([r["accuracy"] for r in run_results])),
                     })
                 except Exception as e:
                     logger.debug(f"MLflow summary log exception: {e}")
