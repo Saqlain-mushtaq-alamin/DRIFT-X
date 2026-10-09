@@ -39,6 +39,7 @@ class DISFusedPolicy(RetrainingPolicy):
         shap_rank_change: Dict[str, Any],
         dis_result: Dict[str, Any],
         atc_result: Dict[str, Any],
+        **kwargs: Any,
     ) -> PolicyDecision:
         should_retrain = atc_result.get("should_retrain", False)
         dis_value = atc_result.get("dis_value", dis_result.get("dis", 0.0))
