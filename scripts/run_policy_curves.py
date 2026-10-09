@@ -51,28 +51,28 @@ logger = logging.getLogger("PolicyCurves")
 POLICY_SWEEPS: Dict[str, Dict[str, Any]] = {
     "p1_fixed": {
         "param_name": "fixed_schedule_interval",
-        "param_values": [1, 2, 3, 4, 5, 6, 8, 10],
+        "param_values": [1, 2, 3, 4, 6, 8, 10],
         "config_keys": ("policy", "fixed_schedule_interval"),
     },
     "p2_drift_only": {
-        "param_name": "ks_alpha",
-        "param_values": [0.01, 0.02, 0.05, 0.10, 0.20],
-        "config_keys": ("detection", "ks_alpha"),
-    },
-    "p3_shap_magnitude": {
-        "param_name": "magnitude_threshold",
-        "param_values": [0.01, 0.02, 0.030, 0.05, 0.08, 0.15],
-        "config_keys": ("explainability", "magnitude_threshold"),
-    },
-    "p4_shap_rank": {
-        "param_name": "rank_change_threshold",
-        "param_values": [0.01, 0.02, 0.035, 0.07, 0.12, 0.20],
-        "config_keys": ("explainability", "rank_change_threshold"),
+        "param_name": "ks_threshold",
+        "param_values": [1.5, 2.0, 2.5, 3.0, 4.0],
+        "config_keys": ("detection", "ks_threshold"),
     },
     "p5_dis_fused": {
-        "param_name": "adaptive_lambda",
-        "param_values": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
-        "config_keys": ("fusion", "adaptive_lambda"),
+        "param_name": "fixed_threshold",
+        "param_values": [1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+        "config_keys": ("fusion", "fixed_threshold"),
+    },
+    "p6_performance_drop": {
+        "param_name": "delta",
+        "param_values": [0.01, 0.02, 0.03, 0.05, 0.08],
+        "config_keys": ("policy", "p6_delta"),
+    },
+    "p8_random_budget": {
+        "param_name": "retrain_prob",
+        "param_values": [0.05, 0.1, 0.2, 0.35, 0.5],
+        "config_keys": ("policy", "p8_retrain_prob"),
     },
 }
 
@@ -167,10 +167,24 @@ def run_policy_curves(
 
     print("\n=== Policy Operating-Point Curves ===")
     print(summary.to_string(index=False))
-    print(
-        "\nInterpretation: compare policies at the SAME retrain count."
-        " A policy is dominant only if its accuracy is higher at equal retrains."
-    )
+    try:
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(9, 6))
+        for pol, grp in summary.groupby("policy"):
+            grp_sorted = grp.sort_values("mean_retrains")
+            plt.plot(grp_sorted["mean_retrains"], grp_sorted["mean_accuracy"], marker="o", label=pol)
+        plt.xlabel("Net Retrain Count")
+        plt.ylabel("Prequential Out-of-Sample Accuracy")
+        plt.title("DRIFT-X Policy Operating-Point Tradeoff Curves")
+        plt.grid(True, linestyle="--", alpha=0.6)
+        plt.legend()
+        plt.tight_layout()
+        plot_path = out_dir / "policy_curves.png"
+        plt.savefig(plot_path, dpi=150)
+        plt.close()
+        logger.info("Saved Pareto curves plot to %s", plot_path)
+    except Exception as e:
+        logger.warning(f"Could not generate plot: {e}")
 
     return df
 
