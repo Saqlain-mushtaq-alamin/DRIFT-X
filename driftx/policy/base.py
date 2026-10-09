@@ -43,6 +43,7 @@ class RetrainingPolicy(ABC):
         shap_rank_change: Dict[str, Any],
         dis_result: Dict[str, Any],
         atc_result: Dict[str, Any],
+        **kwargs: Any,
     ) -> PolicyDecision:
         """
         Make a retrain/keep decision based on available signals.
