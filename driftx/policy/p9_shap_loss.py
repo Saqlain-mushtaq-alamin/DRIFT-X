@@ -10,7 +10,7 @@ class ShapLossPolicy(RetrainingPolicy):
     indicate that model errors have shifted significantly across features.
     """
 
-    def __init__(self, threshold: float = 3.0):
+    def __init__(self, threshold: float = 2.0):
         self.threshold = threshold
         self.previous_loss_profile = None
 
