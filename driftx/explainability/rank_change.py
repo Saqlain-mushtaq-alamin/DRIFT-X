@@ -81,8 +81,9 @@ class RankChangeTracker:
             mu = noise_floor["mu_rank_noise"]
             sd = noise_floor.get("sd_rank_noise", 0.05)
             z_score = float(max(0.0, (rank_change_score - mu) / max(sd, 1e-4)))
-
-        drift_detected = bool(rank_change_score > self.threshold or z_score >= 3.0)
+            drift_detected = bool(z_score >= 3.0)
+        else:
+            drift_detected = bool(rank_change_score > self.threshold)
 
         prev_ranks = prev.rank(ascending=False).astype(int)
         curr_ranks = curr.rank(ascending=False).astype(int)
