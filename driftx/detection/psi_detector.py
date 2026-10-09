@@ -43,7 +43,12 @@ class PSIDriftDetector:
         psi_val = np.sum((cur_props - ref_props) * np.log(cur_props / ref_props))
         return float(psi_val)
 
-    def detect(self, X_current: pd.DataFrame) -> Dict[str, Any]:
+    def detect(
+        self,
+        X_current: pd.DataFrame,
+        feature_weights: Optional[Dict[str, float]] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
         if self.reference_data is None:
             raise RuntimeError("Reference dataset not set. Call set_reference() first.")
 
@@ -69,6 +74,15 @@ class PSIDriftDetector:
         n_drifted = sum(1 for v in results.values() if v["drifted"])
         drift_detected = bool(mean_psi >= self.threshold)
 
+        weighted_psi = mean_psi
+        if feature_weights is not None:
+            w_list = [max(float(feature_weights.get(f, 0.0)), 0.0) for f in results.keys()]
+            w_sum = sum(w_list)
+            if w_sum > 1e-10:
+                weighted_psi = float(sum(w * v["psi"] for w, v in zip(w_list, results.values())) / w_sum)
+
+        z_score = float(max(0.0, (mean_psi - 0.02) / 0.03))
+
         logger.info(
             f"PSI results: mean_psi={mean_psi:.4f}, {n_drifted}/{len(results)} features drifted (detected={drift_detected})"
         )
@@ -76,6 +90,8 @@ class PSIDriftDetector:
         return {
             "drift_detected": drift_detected,
             "drift_score": mean_psi,
+            "weighted_drift_score": weighted_psi,
+            "z_score": z_score,
             "per_feature": results,
             "n_drifted_features": n_drifted,
             "mean_psi": mean_psi,
