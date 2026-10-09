@@ -22,6 +22,7 @@ class DriftOnlyPolicy(RetrainingPolicy):
         shap_rank_change: Dict[str, Any],
         dis_result: Dict[str, Any],
         atc_result: Dict[str, Any],
+        **kwargs: Any,
     ) -> PolicyDecision:
         drift_detected = stat_drift.get("drift_detected", False)
         drift_score = stat_drift.get("drift_score", 0.0)
