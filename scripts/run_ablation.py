@@ -34,13 +34,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("AblationStudy")
 
 ABLATION_CONFIGS = {
-    "full_dis":     {"alpha": 0.4, "beta": 0.4, "gamma": 0.2},  # matches default.yaml (Bug-3 fix)
-    "stat_only":    {"alpha": 1.0, "beta": 0.0, "gamma": 0.0},
-    "mag_only":     {"alpha": 0.0, "beta": 1.0, "gamma": 0.0},
-    "rank_only":    {"alpha": 0.0, "beta": 0.0, "gamma": 1.0},
-    "stat_mag":     {"alpha": 0.5, "beta": 0.5, "gamma": 0.0},
-    "stat_rank":    {"alpha": 0.5, "beta": 0.0, "gamma": 0.5},
-    "mag_rank":     {"alpha": 0.0, "beta": 0.5, "gamma": 0.5},
+    "full_dis":     {"alpha": 0.4, "beta": 0.4, "gamma": 0.2, "gating_mode": "two_channel"},
+    "stat_only":    {"alpha": 1.0, "beta": 0.0, "gamma": 0.0, "gating_mode": "none"},
+    "mag_only":     {"alpha": 0.0, "beta": 1.0, "gamma": 0.0, "gating_mode": "none"},
+    "rank_only":    {"alpha": 0.0, "beta": 0.0, "gamma": 1.0, "gating_mode": "none"},
+    "stat_mag":     {"alpha": 0.5, "beta": 0.5, "gamma": 0.0, "gating_mode": "two_channel"},
+    "stat_rank":    {"alpha": 0.5, "beta": 0.0, "gamma": 0.5, "gating_mode": "two_channel"},
+    "mag_rank":     {"alpha": 0.0, "beta": 0.5, "gamma": 0.5, "gating_mode": "two_channel"},
 }
 
 
