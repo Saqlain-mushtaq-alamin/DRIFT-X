@@ -78,16 +78,21 @@ def generate_null_stream(
         elec_path = PROJECT_ROOT / "data" / "raw" / "electricity.csv"
         if elec_path.exists():
             df_raw = pd.read_csv(elec_path)
-            slice_df = df_raw.head(3000).copy()
-            target_col = "class" if "class" in slice_df.columns else "target"
-            feature_cols = [c for c in slice_df.columns if c not in [target_col, "date", "day", "period"] and np.issubdtype(slice_df[c].dtype, np.number)]
+            # Use the first 5000 rows as a stationary reference slice
+            slice_df = df_raw.iloc[:min(5000, len(df_raw))].copy()
+            exclude_cols = {"class", "target", "date", "day", "period", "Timestamp", "TransactionDT"}
+            feature_cols = [c for c in slice_df.columns if c not in exclude_cols and np.issubdtype(slice_df[c].dtype, np.number)]
+            target_col = "target" if "target" in slice_df.columns else "class"
             rng = np.random.RandomState(seed)
             records = []
             time_step = 86400.0 * 30
             for w in range(n_windows):
                 idx = rng.choice(len(slice_df), size=samples_per_window, replace=True)
                 sample = slice_df.iloc[idx].reset_index(drop=True)
-                y_w = (sample[target_col].astype(str).str.upper() == "UP").astype(int)
+                if sample[target_col].dtype == object or isinstance(sample[target_col].iloc[0], str):
+                    y_w = (sample[target_col].astype(str).str.upper() == "UP").astype(int)
+                else:
+                    y_w = sample[target_col].astype(int)
                 w_start = w * time_step
                 w_end = (w + 1) * time_step - 1.0
                 timestamps = np.sort(rng.uniform(w_start, w_end, size=samples_per_window))
