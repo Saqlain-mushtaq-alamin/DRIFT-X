@@ -55,14 +55,14 @@ class PerformanceDropPolicy(RetrainingPolicy):
 
         drop = self.baseline_accuracy - curr_acc
         should_retrain = bool(drop >= self.delta)
-
+        prev_baseline = self.baseline_accuracy
         if should_retrain:
-            self.baseline_accuracy = curr_acc
+            self.baseline_accuracy = None  # Re-initialize on newly retrained model's next window
 
         return PolicyDecision(
             should_retrain=should_retrain,
-            reason=f"P6: Accuracy drop={drop:.4f} vs delta={self.delta:.4f} (baseline={self.baseline_accuracy:.4f}, curr={curr_acc:.4f})",
+            reason=f"P6: Accuracy drop={drop:.4f} vs delta={self.delta:.4f} (baseline={prev_baseline:.4f}, curr={curr_acc:.4f})",
             policy_name=self.name,
             window_id=window_id,
-            evidence={"drop": drop, "delta": self.delta, "baseline_accuracy": self.baseline_accuracy, "current_accuracy": curr_acc},
+            evidence={"drop": drop, "delta": self.delta, "baseline_accuracy": prev_baseline, "current_accuracy": curr_acc},
         )
