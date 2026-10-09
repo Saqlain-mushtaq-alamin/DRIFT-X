@@ -27,6 +27,7 @@ class RankChangeTracker:
         self,
         current_profile: pd.Series,
         noise_floor: Optional[Dict[str, float]] = None,
+        advance: bool = False,
     ) -> Dict[str, Any]:
         """
         Compare current feature importance ranking with previous window's ranking.
@@ -101,7 +102,8 @@ class RankChangeTracker:
             f"SHAP rank-change: ρ={rho:.4f}, score={rank_change_score:.4f} (z={z_score:.2f}, threshold={self.threshold}, drift={drift_detected})"
         )
 
-        self.previous_profile = current_profile.copy()
+        if advance:
+            self.previous_profile = current_profile.copy()
 
         return {
             "rank_change_score": rank_change_score,
