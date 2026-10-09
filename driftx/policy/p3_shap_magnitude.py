@@ -22,6 +22,7 @@ class ShapMagnitudePolicy(RetrainingPolicy):
         shap_rank_change: Dict[str, Any],
         dis_result: Dict[str, Any],
         atc_result: Dict[str, Any],
+        **kwargs: Any,
     ) -> PolicyDecision:
         drift_detected = shap_magnitude.get("drift_detected", False)
         mag_score = shap_magnitude.get("magnitude_score", 0.0)
