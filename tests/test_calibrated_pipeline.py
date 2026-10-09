@@ -185,3 +185,37 @@ class TestNewBaselines:
 
         p_never = create_policy("p8_random_budget", retrain_prob=0.0)
         assert p_never.decide(1, {}, {}, {}, {}, {}).should_retrain is False
+
+
+class TestGatedDIS:
+
+    def test_clipping_bounds_runaway_signals(self):
+        dis = DriftImpactScore(alpha=0.4, beta=0.4, gamma=0.2, clip_max=5.0, gating_mode="none")
+        res = dis.compute(stat_drift_score=25.0, shap_magnitude_score=0.0, shap_rank_change_score=0.0)
+        # stat clipped to 5.0 -> alpha * 5.0 = 2.0
+        assert abs(res["dis"] - 2.0) < 1e-4
+
+    def test_two_channel_gating_blocks_harmless_single_channel_drift(self):
+        dis = DriftImpactScore(
+            alpha=0.4, beta=0.4, gamma=0.2, clip_max=5.0,
+            gating_mode="two_channel", gating_channel_threshold=2.5, gating_min_channels=2
+        )
+        # Only stat drift is large; explainability signals are below threshold
+        res = dis.compute(stat_drift_score=10.0, shap_magnitude_score=1.0, shap_rank_change_score=0.5)
+        assert res["active_channels"] == 1
+        assert res["is_gated"] is False
+        assert res["dis"] == 0.0
+        assert res["raw_dis"] > 2.0
+
+    def test_two_channel_gating_passes_when_consensus_reached(self):
+        dis = DriftImpactScore(
+            alpha=0.4, beta=0.4, gamma=0.2, clip_max=5.0,
+            gating_mode="two_channel", gating_channel_threshold=2.5, gating_min_channels=2
+        )
+        # Both stat drift and SHAP magnitude are above threshold
+        res = dis.compute(stat_drift_score=4.0, shap_magnitude_score=3.0, shap_rank_change_score=1.0)
+        assert res["active_channels"] == 2
+        assert res["is_gated"] is True
+        expected = 0.4 * 4.0 + 0.4 * 3.0 + 0.2 * 1.0
+        assert abs(res["dis"] - expected) < 1e-4
+
