@@ -441,10 +441,13 @@ class ExperimentRunner:
                     # Update drift reference to the newly trained window
                     detector.set_reference(window.X)
                     
-                    # Reset SHAP trackers so next window is compared to
-                    # the new model's SHAP profile, not the old one.
-                    mag_tracker.reset()
-                    rank_tracker.reset()
+                    # Re-establish SHAP reference profile for the newly trained model on the retraining window
+                    shap_result_retrain = shap_computer.compute(
+                        trainer.get_model(), window.X
+                    )
+                    mag_tracker.previous_profile = shap_result_retrain["mean_abs_shap"].copy()
+                    rank_tracker.previous_profile = shap_result_retrain["mean_abs_shap"].copy()
+                    ref_feature_weights = shap_result_retrain["mean_abs_shap"].to_dict()
 
                     # Neither the normalizer nor the ATC is reset on retrain.
                     # - Normalizer: signal scales (KS stat, SHAP L1/2, Spearman rho)
