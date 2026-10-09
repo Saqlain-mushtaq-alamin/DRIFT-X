@@ -57,7 +57,7 @@ POLICY_SWEEPS: Dict[str, Dict[str, Any]] = {
     "p2_drift_only": {
         "param_name": "ks_threshold",
         "param_values": [1.5, 2.0, 2.5, 3.0, 4.0],
-        "config_keys": ("detection", "ks_threshold"),
+        "config_keys": ("policy", "ks_threshold"),
     },
     "p5_dis_fused": {
         "param_name": "fixed_threshold",
@@ -67,12 +67,12 @@ POLICY_SWEEPS: Dict[str, Dict[str, Any]] = {
     "p6_performance_drop": {
         "param_name": "delta",
         "param_values": [0.01, 0.02, 0.03, 0.05, 0.08],
-        "config_keys": ("policy", "p6_delta"),
+        "config_keys": ("policy", "performance_drop_delta"),
     },
     "p8_random_budget": {
         "param_name": "retrain_prob",
         "param_values": [0.05, 0.1, 0.2, 0.35, 0.5],
-        "config_keys": ("policy", "p8_retrain_prob"),
+        "config_keys": ("policy", "random_retrain_prob"),
     },
 }
 
