@@ -66,7 +66,7 @@ class ShapLossPolicy(RetrainingPolicy):
         sd = noise_floor.get("sd_mag_noise", 0.005)
         z_score = float(max(0.0, (loss_mag_score - mu) / max(sd, 1e-5)))
 
-        should_retrain = bool(z_score >= self.threshold or loss_mag_score > 0.15)
+        should_retrain = bool(z_score >= self.threshold)
         if should_retrain:
             self.previous_loss_profile = curr_loss_prof
 
