@@ -47,6 +47,7 @@ from driftx.fusion.threshold import AdaptiveThresholdController
 from driftx.training.trainer import ModelTrainer
 from driftx.policy import create_all_policies
 from driftx.policy.base import PolicyDecision
+from driftx.experiment.config_hash import compute_config_hash, get_run_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +124,13 @@ class ExperimentRunner:
         all_results = []
         timestamp_col = self.config.get("data", {}).get("timestamp_col", "TransactionDT")
         
-        for policy_id, policy in policies.items():
+        active_policy_ids = list(policies.keys())
+        for policy_id in active_policy_ids:
             for seed in seeds:
+                policy_cfg = {**self.config.get("policy", {}), "active_policies": [policy_id], "seed": seed}
+                fresh_policy = create_all_policies(policy_cfg)[policy_id]
                 logger.info(f"\n{'='*60}")
-                logger.info(f"Policy: {policy.name} | Seed: {seed}")
+                logger.info(f"Policy: {fresh_policy.name} | Seed: {seed}")
                 logger.info(f"{'='*60}")
 
                 # Apply per-seed data replicate shift if configured.
@@ -146,7 +150,7 @@ class ExperimentRunner:
                     windows_seed = windows
                 
                 run_results = self._run_single(
-                    policy=policy,
+                    policy=fresh_policy,
                     windows=windows_seed,
                     seed=seed,
                 )
@@ -212,6 +216,10 @@ class ExperimentRunner:
             alpha=self.config["fusion"]["alpha"],
             beta=self.config["fusion"]["beta"],
             gamma=self.config["fusion"]["gamma"],
+            clip_max=self.config["fusion"].get("clip_max", 5.0),
+            gating_mode=self.config["fusion"].get("gating_mode", "two_channel"),
+            gating_channel_threshold=self.config["fusion"].get("gating_channel_threshold", 2.5),
+            gating_min_channels=self.config["fusion"].get("gating_min_channels", 2),
         )
         use_calibration = self.config.get("fusion", {}).get("use_calibrated_zscore", True)
         signal_normalizer = SignalNormalizer(warmup_windows=2)
@@ -224,6 +232,8 @@ class ExperimentRunner:
             mode=self.config["fusion"].get("threshold_mode", "fixed"),
         )
         label_delay = self.config.get("project", {}).get("label_delay", 0)
+        config_hash = compute_config_hash(self.config)
+        run_timestamp = get_run_timestamp()
         
         run_results = []
         total_cost = 0.0
@@ -288,10 +298,23 @@ class ExperimentRunner:
                 "stat_drift_score": 0.0,
                 "shap_magnitude_score": 0.0,
                 "shap_rank_change_score": 0.0,
+                "z_stat": 0.0,
+                "z_mag": 0.0,
+                "z_rank": 0.0,
+                "raw_dis": 0.0,
                 "dis": 0.0,
+                "is_gated": True,
+                "active_channels": 0,
                 "threshold": 0.0,
                 # Warmup flag: window 0 is always the initial-train window.
                 "is_warmup": True,
+                "alpha": self.config["fusion"]["alpha"],
+                "beta": self.config["fusion"]["beta"],
+                "gamma": self.config["fusion"]["gamma"],
+                "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.92),
+                "lookback_k": self.config["fusion"].get("adaptive_lookback", 10),
+                "config_hash": config_hash,
+                "run_timestamp": run_timestamp,
                 # Provenance: is this dataset real or synthetic?
                 "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
             }
@@ -470,8 +493,14 @@ class ExperimentRunner:
                     "stat_drift_score": stat_drift["drift_score"],
                     "shap_magnitude_score": mag_result["magnitude_score"],
                     "shap_rank_change_score": rank_result["rank_change_score"],
-                    "dis": dis_result["dis"],
-                    "threshold": atc_result["threshold"],
+                    "z_stat": float(stat_drift.get("z_score", stat_drift["drift_score"])),
+                    "z_mag": float(mag_result.get("z_score", mag_result["magnitude_score"])),
+                    "z_rank": float(rank_result.get("z_score", rank_result["rank_change_score"])),
+                    "raw_dis": float(dis_result.get("raw_dis", dis_result["dis"])),
+                    "dis": float(dis_result["dis"]),
+                    "is_gated": bool(dis_result.get("is_gated", True)),
+                    "active_channels": int(dis_result.get("active_channels", 0)),
+                    "threshold": float(atc_result["threshold"]),
                     # Whether the ATC was in warmup mode for this window.
                     # True means the trigger came from the fixed warmup_threshold
                     # (0.1), NOT from the adaptive μ+λσ formula.  Used downstream
@@ -481,8 +510,10 @@ class ExperimentRunner:
                     "alpha": self.config["fusion"]["alpha"],
                     "beta": self.config["fusion"]["beta"],
                     "gamma": self.config["fusion"]["gamma"],
-                    "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.5),
-                    "lookback_k": self.config["fusion"].get("adaptive_lookback", 3),
+                    "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.92),
+                    "lookback_k": self.config["fusion"].get("adaptive_lookback", 10),
+                    "config_hash": config_hash,
+                    "run_timestamp": run_timestamp,
                     # Provenance: is this dataset real or synthetic?
                     "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
                 }
