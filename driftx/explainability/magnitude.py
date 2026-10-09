@@ -22,6 +22,7 @@ class MagnitudeTracker:
         self,
         current_profile: pd.Series,
         noise_floor: Optional[Dict[str, float]] = None,
+        advance: bool = False,
     ) -> Dict[str, Any]:
         """
         Compare current mean |SHAP| profile against the reference profile.
@@ -29,6 +30,7 @@ class MagnitudeTracker:
         Args:
             current_profile: Mean |SHAP| profile for current window.
             noise_floor: Optional dict containing mu_mag_noise and sd_mag_noise.
+            advance: If True, update reference profile to current window (default False).
 
         Returns:
             Dict containing magnitude_score, z_score, drift_detected, and per_feature_change.
@@ -67,7 +69,8 @@ class MagnitudeTracker:
             f"SHAP magnitude score: {magnitude_score_normalized:.4f} (z={z_score:.2f}, threshold={self.threshold}, drift={drift_detected})"
         )
 
-        self.previous_profile = current_profile.copy()
+        if advance:
+            self.previous_profile = current_profile.copy()
 
         return {
             "magnitude_score": magnitude_score_normalized,
