@@ -288,6 +288,10 @@ def run_changepoint_experiment(
         "fusion": {
             "alpha": 0.4, "beta": 0.4, "gamma": 0.2,
             "use_calibrated_zscore": True,
+            "clip_max": 5.0,
+            "gating_mode": "two_channel",
+            "gating_channel_threshold": 2.5,
+            "gating_min_channels": 2,
             "threshold_mode": "fixed",
             "fixed_threshold": 3.0,
             "warmup_threshold": float("inf"),
@@ -298,6 +302,7 @@ def run_changepoint_experiment(
             "active_policies": [
                 "p0_never", "p1_fixed", "p2_drift_only",
                 "p3_shap_magnitude", "p4_shap_rank", "p5_dis_fused",
+                "p6_performance_drop", "p7_weighted_ks", "p8_random_budget", "p9_shap_loss",
             ],
             "fixed_schedule_interval": 3,
         },
@@ -316,9 +321,10 @@ def run_changepoint_experiment(
             concept_only=concept_only,
         )
         runner = ExperimentRunner(config)
+        prefix = "changepoint_concept_only" if concept_only else "changepoint"
         seed_results = runner.run_all(
             df_override=df_cp,
-            output_filename=f"changepoint_seed{seed}.csv",
+            output_filename=f"{prefix}_seed{seed}.csv",
         )
         seed_results["cp_seed"] = seed
         seed_results["concept_only"] = concept_only
@@ -329,7 +335,8 @@ def run_changepoint_experiment(
     # Save full results
     out_dir = PROJECT_ROOT / "results"
     out_dir.mkdir(exist_ok=True)
-    full_path = out_dir / "changepoint_results.csv"
+    full_name = "changepoint_concept_only_results.csv" if concept_only else "changepoint_results.csv"
+    full_path = out_dir / full_name
     results.to_csv(full_path, index=False)
 
     # Compute per-seed metrics, then average
@@ -361,7 +368,8 @@ def run_changepoint_experiment(
         .reset_index()
     )
     summary.columns = [f"mean_{c}" if c != "policy" else c for c in summary.columns]
-    summary_path = out_dir / "changepoint_summary.csv"
+    summary_name = "changepoint_concept_only_summary.csv" if concept_only else "changepoint_summary.csv"
+    summary_path = out_dir / summary_name
     summary.to_csv(summary_path, index=False)
 
     print("\n" + "=" * 70)
