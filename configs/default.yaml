@@ -45,6 +45,10 @@ fusion:
   beta: 0.4                     # Weight for SHAP magnitude
   gamma: 0.2                    # Weight for SHAP rank-change
   use_calibrated_zscore: true   # Calibrate DIS components into noise z-score units
+  clip_max: 5.0                 # Clip unbounded z-scores to prevent single-channel dominance
+  gating_mode: "two_channel"    # Options: "two_channel", "stat_and_shap", "min", "none"
+  gating_channel_threshold: 2.5 # Z-score threshold for individual channel activation
+  gating_min_channels: 2        # Number of channels required to agree before retraining
   threshold_mode: "fixed"       # Options: "fixed" (noise units ~3.0) or "adaptive"
   fixed_threshold: 3.0          # Fixed threshold in calibrated noise units
   warmup_threshold: .inf        # Never retrain during warmup
