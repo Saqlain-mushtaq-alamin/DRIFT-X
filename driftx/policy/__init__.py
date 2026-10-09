@@ -46,15 +46,21 @@ def create_all_policies(config: dict) -> Dict[str, RetrainingPolicy]:
         kwargs = {}
         if pid == "p1_fixed":
             kwargs["interval"] = config.get("fixed_schedule_interval", 3)
+        elif pid == "p2_drift_only":
+            kwargs["threshold"] = config.get("ks_threshold", config.get("fixed_threshold", 3.0))
+        elif pid == "p3_shap_magnitude":
+            kwargs["threshold"] = config.get("magnitude_threshold", 3.0)
+        elif pid == "p4_shap_rank":
+            kwargs["threshold"] = config.get("rank_change_threshold", 3.0)
         elif pid == "p6_performance_drop":
-            kwargs["delta"] = config.get("performance_drop_delta", 0.05)
+            kwargs["delta"] = config.get("performance_drop_delta", config.get("p6_delta", 0.05))
         elif pid == "p7_weighted_ks":
             kwargs["threshold"] = config.get("weighted_ks_threshold", 1.0)
         elif pid == "p8_random_budget":
-            kwargs["retrain_prob"] = config.get("random_retrain_prob", 0.21)
+            kwargs["retrain_prob"] = config.get("random_retrain_prob", config.get("p8_retrain_prob", 0.21))
             kwargs["seed"] = config.get("seed", 42)
         elif pid == "p9_shap_loss":
-            kwargs["threshold"] = config.get("shap_loss_threshold", 3.0)
+            kwargs["threshold"] = config.get("shap_loss_threshold", config.get("p9_threshold", 2.0))
         policies[pid] = create_policy(pid, **kwargs)
     
     return policies
