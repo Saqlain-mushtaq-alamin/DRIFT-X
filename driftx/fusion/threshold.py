@@ -15,22 +15,28 @@ class AdaptiveThresholdController:
 
     def __init__(
         self,
-        lookback: int = 3,
-        lambda_val: float = 1.5,
+        lookback: int = 10,
+        lambda_val: float = 1.92,
         min_threshold: float = 0.05,
-        warmup_threshold: float = 0.1,
+        warmup_threshold: float = float("inf"),
+        fixed_threshold: Optional[float] = None,
+        mode: str = "adaptive",
     ):
         """
         Args:
             lookback: Past window count (k) for moving mean/std
-            lambda_val: Sensitivity multiplier (λ)
+            lambda_val: Sensitivity multiplier (λ), default 1.92 for ~5% false alarms
             min_threshold: Floor for the dynamic threshold
-            warmup_threshold: Fixed fallback threshold used during initial warmup (fewer than k values)
+            warmup_threshold: Fallback threshold during warmup (default: inf to never retrain during warmup)
+            fixed_threshold: Optional fixed threshold (e.g. 3.0 for calibrated noise units)
+            mode: 'adaptive' (dynamic mu + lambda * sigma) or 'fixed' (constant threshold post-warmup)
         """
         self.lookback = lookback
         self.lambda_val = lambda_val
         self.min_threshold = min_threshold
         self.warmup_threshold = warmup_threshold
+        self.fixed_threshold = fixed_threshold
+        self.mode = mode
         self.dis_history: List[float] = []
 
     def update_and_decide(
@@ -48,11 +54,6 @@ class AdaptiveThresholdController:
         should_retrain = bool(dis_value > threshold)
 
         # Always record the DIS value, including retrain-triggering spikes.
-        # Excluding spikes (as was previously attempted) prevented the ATC from
-        # accumulating enough history to exit warmup under strong drift — every
-        # triggered window was excluded, so dis_history stayed empty permanently.
-        # The spike IS the informative event: it tells the ATC what a high-DIS
-        # window looks like so the adaptive threshold is calibrated accordingly.
         self.dis_history.append(dis_value)
 
         result = {
@@ -71,17 +72,21 @@ class AdaptiveThresholdController:
         return result
 
     def _compute_threshold(self) -> Tuple[float, bool, Dict[str, Any]]:
-        if len(self.dis_history) < self.lookback:
+        warmup_req = 1 if (self.mode == "fixed" and self.fixed_threshold is not None) else self.lookback
+        if len(self.dis_history) < warmup_req:
             return self.warmup_threshold, True, {"mean": None, "std": None, "k_used": len(self.dis_history)}
 
         recent = self.dis_history[-self.lookback:]
         mu = float(np.mean(recent))
-        sigma = float(np.std(recent))
+        sigma = float(np.std(recent, ddof=1)) if len(recent) > 1 else 0.0
 
-        threshold = float(mu + self.lambda_val * sigma)
-        threshold = float(max(threshold, self.min_threshold))
+        if self.mode == "fixed" and self.fixed_threshold is not None:
+            threshold = float(self.fixed_threshold)
+        else:
+            threshold = float(mu + self.lambda_val * sigma)
+            threshold = float(max(threshold, self.min_threshold))
 
-        return threshold, False, {"mean": mu, "std": sigma, "k_used": self.lookback}
+        return threshold, False, {"mean": mu, "std": sigma, "k_used": len(recent)}
 
     def reset(self):
         self.dis_history = []
@@ -93,8 +98,11 @@ class AdaptiveThresholdController:
                 thresholds.append(self.warmup_threshold)
             else:
                 recent = self.dis_history[i - self.lookback : i]
-                mu = np.mean(recent)
-                sigma = np.std(recent)
-                t = max(mu + self.lambda_val * sigma, self.min_threshold)
-                thresholds.append(float(t))
+                if self.mode == "fixed" and self.fixed_threshold is not None:
+                    thresholds.append(float(self.fixed_threshold))
+                else:
+                    mu = float(np.mean(recent))
+                    sigma = float(np.std(recent, ddof=1)) if len(recent) > 1 else 0.0
+                    t = max(mu + self.lambda_val * sigma, self.min_threshold)
+                    thresholds.append(float(t))
         return thresholds
