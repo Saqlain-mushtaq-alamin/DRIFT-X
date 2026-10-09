@@ -33,22 +33,24 @@ class DriftImpactScore:
         shap_magnitude_score: float,
         shap_rank_change_score: float,
         window_id: int = -1,
+        clip_max: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Compute fused DIS value.
 
         Args:
-            stat_drift_score: Statistical drift ratio/score (0 to 1)
-            shap_magnitude_score: SHAP magnitude change score (0 to 1)
-            shap_rank_change_score: SHAP rank-change score 1 - ρ (0 to 1)
+            stat_drift_score: Statistical drift score or calibrated z-score
+            shap_magnitude_score: SHAP magnitude change score or calibrated z-score
+            shap_rank_change_score: SHAP rank-change score or calibrated z-score
             window_id: Window identifier
+            clip_max: Optional upper bound for signals (default: None for z-scores)
 
         Returns:
             Dict containing dis, components, raw_signals, weights, and window_id.
         """
-        s_stat = float(np.clip(stat_drift_score, 0.0, 1.0))
-        s_mag = float(np.clip(shap_magnitude_score, 0.0, 1.0))
-        s_rank = float(np.clip(shap_rank_change_score, 0.0, 1.0))
+        s_stat = float(np.clip(stat_drift_score, 0.0, clip_max) if clip_max else max(0.0, stat_drift_score))
+        s_mag = float(np.clip(shap_magnitude_score, 0.0, clip_max) if clip_max else max(0.0, shap_magnitude_score))
+        s_rank = float(np.clip(shap_rank_change_score, 0.0, clip_max) if clip_max else max(0.0, shap_rank_change_score))
 
         dis = self.alpha * s_stat + self.beta * s_mag + self.gamma * s_rank
 
