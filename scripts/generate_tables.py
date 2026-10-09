@@ -15,7 +15,8 @@ logger = logging.getLogger("GenerateTables")
 
 POLICY_ORDER = [
     'p0_never', 'p1_fixed', 'p2_drift_only',
-    'p3_shap_magnitude', 'p4_shap_rank', 'p5_dis_fused'
+    'p3_shap_magnitude', 'p4_shap_rank', 'p5_dis_fused',
+    'p6_performance_drop', 'p7_weighted_ks', 'p8_random_budget', 'p9_shap_loss'
 ]
 
 
@@ -224,6 +225,7 @@ def generate_cross_dataset_table(
 
 
 if __name__ == "__main__":
-    generate_paper_tables()
+    path = sys.argv[1] if len(sys.argv) > 1 else None
+    generate_paper_tables(path)
     generate_cross_dataset_table()
 
