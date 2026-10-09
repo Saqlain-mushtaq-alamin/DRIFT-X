@@ -22,6 +22,7 @@ class ShapRankChangePolicy(RetrainingPolicy):
         shap_rank_change: Dict[str, Any],
         dis_result: Dict[str, Any],
         atc_result: Dict[str, Any],
+        **kwargs: Any,
     ) -> PolicyDecision:
         drift_detected = shap_rank_change.get("drift_detected", False)
         rank_score = shap_rank_change.get("rank_change_score", 0.0)
