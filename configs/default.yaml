@@ -64,6 +64,10 @@ policy:
     - "p3_shap_magnitude"
     - "p4_shap_rank"
     - "p5_dis_fused"
+    - "p6_performance_drop"
+    - "p7_weighted_ks"
+    - "p8_random_budget"
+    - "p9_shap_loss"
 
 evaluation:
   metrics:
