@@ -148,7 +148,12 @@ def run_null_stream_experiment(n_windows: int = 20, n_seeds: int = 5) -> pd.Data
         },
         "fusion": {
             "alpha": 0.4, "beta": 0.4, "gamma": 0.2,
-            "adaptive_lookback": 3, "adaptive_lambda": 1.5,
+            "use_calibrated_zscore": True,
+            "threshold_mode": "fixed",
+            "fixed_threshold": 3.0,
+            "warmup_threshold": float("inf"),
+            "adaptive_lookback": 10,
+            "adaptive_lambda": 1.92,
         },
         "policy": {
             "active_policies": [
