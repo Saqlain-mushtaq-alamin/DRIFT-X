@@ -29,6 +29,7 @@ class FixedSchedulePolicy(RetrainingPolicy):
         shap_rank_change: Dict[str, Any],
         dis_result: Dict[str, Any],
         atc_result: Dict[str, Any],
+        **kwargs: Any,
     ) -> PolicyDecision:
         should_retrain = (window_id > 0) and (window_id % self.interval == 0)
         return PolicyDecision(
