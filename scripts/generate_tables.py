@@ -50,8 +50,9 @@ def generate_paper_tables(results_path: Optional[str] = None):
         std_acc = per_seed["accuracy"].std() if len(per_seed) > 1 else 0.0
         mean_f1 = per_seed["f1"].mean()
         std_f1 = per_seed["f1"].std() if len(per_seed) > 1 else 0.0
+        eval_p_df = p_df[p_df["window_id"] > 0]
         mean_cost = per_seed["cumulative_cost"].mean()
-        mean_retrains = per_seed["cumulative_retrains"].mean()
+        mean_retrains = eval_p_df.groupby("seed")["retrained"].sum().mean() if not eval_p_df.empty else 0.0
         
         # Extract fusion hyperparameters from CSV if present (logged since Bug-6 fix).
         # Use dropna() to skip window-0 rows which don't carry these columns.
