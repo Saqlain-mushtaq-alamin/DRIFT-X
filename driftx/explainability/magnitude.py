@@ -59,8 +59,9 @@ class MagnitudeTracker:
             mu = noise_floor["mu_mag_noise"]
             sd = noise_floor.get("sd_mag_noise", 1e-4)
             z_score = float(max(0.0, (magnitude_score_normalized - mu) / max(sd, 1e-6)))
-
-        drift_detected = bool(magnitude_score_normalized > self.threshold or z_score >= 3.0)
+            drift_detected = bool(z_score >= 3.0)
+        else:
+            drift_detected = bool(magnitude_score_normalized > self.threshold)
 
         logger.info(
             f"SHAP magnitude score: {magnitude_score_normalized:.4f} (z={z_score:.2f}, threshold={self.threshold}, drift={drift_detected})"
