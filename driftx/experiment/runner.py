@@ -134,7 +134,11 @@ class ExperimentRunner:
                 # different temporal slice of the data (distinct train/eval
                 # windows), not just a different model initialisation seed.
                 # This is a stronger variance estimate than model-seed-only.
-                if df_override is None and self.config.get("project", {}).get("data_replicate_shift_windows", 0) > 0:
+                has_replicate = (
+                    self.config.get("project", {}).get("data_replicate_offset_rows", 0) > 0
+                    or self.config.get("project", {}).get("data_replicate_shift_windows", 0) > 0
+                )
+                if df_override is None and has_replicate:
                     df_seed = self._make_replicate_df(df, seed, timestamp_col)
                     splitter_seed = WindowSplitter(self.config["data"])
                     windows_seed = splitter_seed.split(df_seed)
@@ -200,20 +204,26 @@ class ExperimentRunner:
         rank_tracker = RankChangeTracker(
             threshold=self.config["explainability"].get(
                 "rank_change_threshold", 0.3
-            )
+            ),
+            top_k=self.config["explainability"].get("rank_top_k", 5),
+            use_weightedtau=self.config["explainability"].get("use_weightedtau", False),
         )
         dis_computer = DriftImpactScore(
             alpha=self.config["fusion"]["alpha"],
             beta=self.config["fusion"]["beta"],
             gamma=self.config["fusion"]["gamma"],
         )
-        # Per-signal normalizer: scales each DIS input to [0, 1] so the
-        # fused score occupies the full range and can exceed the warmup threshold.
+        use_calibration = self.config.get("fusion", {}).get("use_calibrated_zscore", True)
         signal_normalizer = SignalNormalizer(warmup_windows=2)
         atc = AdaptiveThresholdController(
-            lookback=self.config["fusion"].get("adaptive_lookback", 3),
-            lambda_val=self.config["fusion"].get("adaptive_lambda", 1.5),
+            lookback=self.config["fusion"].get("adaptive_lookback", 10),
+            lambda_val=self.config["fusion"].get("adaptive_lambda", 1.92),
+            min_threshold=self.config["fusion"].get("min_threshold", 0.05),
+            warmup_threshold=self.config["fusion"].get("warmup_threshold", float("inf")),
+            fixed_threshold=self.config["fusion"].get("fixed_threshold", 3.0),
+            mode=self.config["fusion"].get("threshold_mode", "fixed"),
         )
+        label_delay = self.config.get("project", {}).get("label_delay", 0)
         
         run_results = []
         total_cost = 0.0
@@ -250,12 +260,14 @@ class ExperimentRunner:
             # Set drift detection reference
             detector.set_reference(windows[0].X)
             
-            # Compute initial SHAP profile
+            # Compute initial SHAP profile and reference feature weights
             shap_result = shap_computer.compute(
                 trainer.get_model(), windows[0].X
             )
-            mag_tracker.update_and_compare(shap_result["mean_abs_shap"])
-            rank_tracker.update_and_compare(shap_result["mean_abs_shap"])
+            noise_floor_w0 = shap_result.get("noise_floor", {})
+            mag_tracker.update_and_compare(shap_result["mean_abs_shap"], noise_floor=noise_floor_w0)
+            rank_tracker.update_and_compare(shap_result["mean_abs_shap"], noise_floor=noise_floor_w0)
+            ref_feature_weights = shap_result["mean_abs_shap"].to_dict()
             
             # Log window 0 — accuracy is NaN (no evaluation possible yet).
             w0_row = {
@@ -315,37 +327,57 @@ class ExperimentRunner:
                     f"  Pre-retrain eval: acc={eval_metrics['accuracy']:.4f}"
                     f" (out-of-sample, model v{trainer.version})"
                 )
+
+                # Delayed metrics for performance trigger if label_delay > 0
+                delayed_eval = eval_metrics
+                if label_delay > 0:
+                    delay_idx = w_idx - label_delay
+                    if delay_idx >= 1:
+                        delayed_eval = trainer.evaluate(windows[delay_idx].X, windows[delay_idx].y)
+                    else:
+                        delayed_eval = {"accuracy": float("nan"), "f1_weighted": float("nan")}
                 
                 # 2. Statistical drift detection
-                stat_drift = detector.detect(window.X)
+                stat_drift = detector.detect(window.X, feature_weights=ref_feature_weights)
                 
                 # 3. SHAP computation
                 shap_result = shap_computer.compute(
                     trainer.get_model(), window.X
                 )
+                noise_floor = shap_result.get("noise_floor", {})
                 
-                # 4. SHAP magnitude tracking
+                # 4. SHAP magnitude tracking (calibrated with noise floor)
                 mag_result = mag_tracker.update_and_compare(
-                    shap_result["mean_abs_shap"]
+                    shap_result["mean_abs_shap"],
+                    noise_floor=noise_floor,
                 )
                 
-                # 5. SHAP rank-change tracking
+                # 5. SHAP rank-change tracking (calibrated with noise floor on top features)
                 rank_result = rank_tracker.update_and_compare(
-                    shap_result["mean_abs_shap"]
+                    shap_result["mean_abs_shap"],
+                    noise_floor=noise_floor,
                 )
                 
-                # 6. Normalise signals to [0,1] then compute DIS (fused score)
-                normalized = signal_normalizer.normalize(
-                    stat=stat_drift["drift_score"],
-                    mag=mag_result["magnitude_score"],
-                    rank=rank_result["rank_change_score"],
-                )
-                dis_result = dis_computer.compute(
-                    stat_drift_score=normalized["stat"],
-                    shap_magnitude_score=normalized["magnitude"],
-                    shap_rank_change_score=normalized["rank_change"],
-                    window_id=w_idx,
-                )
+                # 6. DIS (fused score)
+                if use_calibration:
+                    dis_result = dis_computer.compute(
+                        stat_drift_score=stat_drift.get("z_score", stat_drift["drift_score"]),
+                        shap_magnitude_score=mag_result.get("z_score", mag_result["magnitude_score"]),
+                        shap_rank_change_score=rank_result.get("z_score", rank_result["rank_change_score"]),
+                        window_id=w_idx,
+                    )
+                else:
+                    normalized = signal_normalizer.normalize(
+                        stat=stat_drift["drift_score"],
+                        mag=mag_result["magnitude_score"],
+                        rank=rank_result["rank_change_score"],
+                    )
+                    dis_result = dis_computer.compute(
+                        stat_drift_score=normalized["stat"],
+                        shap_magnitude_score=normalized["magnitude"],
+                        shap_rank_change_score=normalized["rank_change"],
+                        window_id=w_idx,
+                    )
                 
                 # 7. Adaptive threshold decision
                 atc_result = atc.update_and_decide(
@@ -363,6 +395,10 @@ class ExperimentRunner:
                     shap_rank_change=rank_result,
                     dis_result=dis_result,
                     atc_result=atc_result,
+                    eval_metrics=delayed_eval,
+                    trainer=trainer,
+                    window=window,
+                    shap_computer=shap_computer,
                 )
                 
                 # 9. If the policy triggers a retrain, do it AFTER logging
@@ -390,23 +426,22 @@ class ExperimentRunner:
                     # Neither the normalizer nor the ATC is reset on retrain.
                     # - Normalizer: signal scales (KS stat, SHAP L1/2, Spearman rho)
                     #   are properties of the data/feature set, not the model.
-                    #   Resetting on retrain introduced two-window warmup gaps where
-                    #   DIS=raw-values (tiny), collapsing the ATC history to zeros
-                    #   and driving theta to min_threshold (false Pareto collapse).
                     # - ATC: must accumulate DIS history across epochs to exit warmup.
-                    #   Post-retrain DIS values (low drift, just trained) are valid
-                    #   signal that rightfully pull the adaptive threshold downward.
                     
                     # Re-compute SHAP for new model baseline
                     shap_result = shap_computer.compute(
                         trainer.get_model(), window.X
                     )
+                    noise_floor_post = shap_result.get("noise_floor", {})
                     mag_tracker.update_and_compare(
-                        shap_result["mean_abs_shap"]
+                        shap_result["mean_abs_shap"],
+                        noise_floor=noise_floor_post,
                     )
                     rank_tracker.update_and_compare(
-                        shap_result["mean_abs_shap"]
+                        shap_result["mean_abs_shap"],
+                        noise_floor=noise_floor_post,
                     )
+                    ref_feature_weights = shap_result["mean_abs_shap"].to_dict()
                     
                     logger.info(
                         f"  RETRAINED: cost={retrain_cost:.2f}s "
@@ -514,43 +549,34 @@ class ExperimentRunner:
         seed: int,
         timestamp_col: str,
     ) -> pd.DataFrame:
-        """Shift the dataset's timestamp origin by a seed-specific offset.
+        """Offset the window grid by dropping leading rows per seed.
 
         This creates genuinely different data replicates per seed by sliding the
-        window boundaries, so each seed trains and evaluates on a different
-        temporal slice of the data rather than just varying the model seed.
+        window boundaries across the observation sequence, so each seed trains
+        and evaluates on a different temporal slice rather than just varying
+        the model seed.
 
         Args:
-            df: Full dataset, already sorted by timestamp.
-            seed: Current seed value (used to compute shift magnitude).
-            timestamp_col: Name of the timestamp column.
+            df: Full dataset, already sorted chronologically.
+            seed: Current seed value.
+            timestamp_col: Timestamp column name.
 
         Returns:
-            A copy of df with timestamps shifted by ``(seed - base_seed) * shift``.
+            Shifted DataFrame with leading rows dropped.
         """
-        base_seed = self.config.get("project", {}).get("seed", 42)
-        shift_windows = self.config.get("project", {}).get("data_replicate_shift_windows", 0)
-        if shift_windows == 0 or seed == base_seed:
+        base = self.config["project"].get("seed", 42)
+        step = self.config["project"].get("data_replicate_offset_rows", 0)
+        if step == 0 and self.config["project"].get("data_replicate_shift_windows", 0) > 0:
+            samples_per_window = self.config.get("data", {}).get("min_window_samples", 1000)
+            step = int(self.config["project"].get("data_replicate_shift_windows", 0) * samples_per_window)
+        if step == 0 or seed == base:
             return df
 
-        # Compute the span of one window in timestamp units.
-        # Approximate: total span / number of data points gives per-row step;
-        # multiplying by samples_per_window gives one window's timestamp width.
-        t_min = float(df[timestamp_col].min())
-        t_max = float(df[timestamp_col].max())
-        n_rows = max(len(df), 1)
-        # Estimate one-window duration as 1/n_windows of total span.
-        # Use a safe denominator.
-        est_n_windows = max(
-            self.config.get("data", {}).get("n_windows", 20), 1
-        )
-        one_window_span = (t_max - t_min) / est_n_windows
-        shift = (seed - base_seed) * shift_windows * one_window_span
-
-        df = df.copy()
-        df[timestamp_col] = df[timestamp_col] + shift
-        logger.info(
-            f"Data replicate shift applied for seed {seed}: "
-            f"+{shift:.0f} timestamp units ({shift_windows} windows)"
-        )
+        offset = (seed - base) * step
+        if offset < len(df):
+            logger.info(
+                f"Data replicate offset applied for seed {seed}: "
+                f"dropped {offset} leading rows (step={step})"
+            )
+            return df.iloc[offset:].reset_index(drop=True)
         return df
