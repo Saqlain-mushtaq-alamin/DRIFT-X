@@ -198,16 +198,13 @@ def compute_changepoint_metrics(
     """
     summary_rows = []
 
-    # Detection zone: windows immediately after a CP where a trigger is "correct".
-    # We allow up to 3 windows after each CP (CP fires, detector needs 1 window
-    # to accumulate signal, may need another for SHAP lag).
-    detection_zone = set()
-    for cp in change_points:
-        for offset in range(1, 4):  # detected at cp+1, cp+2, or cp+3
-            detection_zone.add(cp + offset)
+    # Detection zone: windows where a trigger is considered a correct detection.
+    # A detector that fires at the change point window itself (offset 0) or
+    # within 3 windows after (offsets 1, 2, 3) is a true detection.
+    detection_zone = {cp + o for cp in change_points for o in range(0, 4)}
 
-    # Warmup zone: first k windows after initial training.
-    warmup_zone = set(range(1, atc_warmup_windows + 1))
+    # Warmup zone: first k windows after initial training (excluding valid detection zone).
+    warmup_zone = set(range(1, atc_warmup_windows + 1)) - detection_zone
 
     # Non-CP eval windows (excluding window 0, detection zone, AND warmup zone).
     all_eval = set(range(1, n_total_windows))
@@ -222,7 +219,7 @@ def compute_changepoint_metrics(
         delays = []
         for cp in change_points:
             detected_at = None
-            for offset in range(1, n_total_windows - cp):
+            for offset in range(0, n_total_windows - cp):
                 if (cp + offset) in retrain_windows:
                     detected_at = offset
                     break
@@ -290,7 +287,12 @@ def run_changepoint_experiment(
         },
         "fusion": {
             "alpha": 0.4, "beta": 0.4, "gamma": 0.2,
-            "adaptive_lookback": 3, "adaptive_lambda": 1.5,
+            "use_calibrated_zscore": True,
+            "threshold_mode": "fixed",
+            "fixed_threshold": 3.0,
+            "warmup_threshold": float("inf"),
+            "adaptive_lookback": 10,
+            "adaptive_lambda": 1.92,
         },
         "policy": {
             "active_policies": [
@@ -337,7 +339,7 @@ def run_changepoint_experiment(
         s = compute_changepoint_metrics(
             seed_results, change_points=CHANGE_POINTS,
             n_total_windows=n_total,
-            atc_warmup_windows=config["fusion"].get("adaptive_lookback", 3),
+            atc_warmup_windows=(1 if config["fusion"].get("threshold_mode") == "fixed" else config["fusion"].get("adaptive_lookback", 10)),
         )
         s["seed"] = seed
         all_summaries.append(s)
