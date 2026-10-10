@@ -30,6 +30,10 @@ class DISFusedPolicy(RetrainingPolicy):
     @property
     def policy_id(self) -> str:
         return "p5_dis_fused"
+
+    @property
+    def needs_shap(self) -> bool:
+        return True
     
     def decide(
         self,
