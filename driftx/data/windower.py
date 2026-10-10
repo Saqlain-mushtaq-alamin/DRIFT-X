@@ -58,7 +58,7 @@ class WindowSplitter:
             List of non-overlapping Window objects.
         """
         if feature_cols is None:
-            exclude = {self.timestamp_col, self.target_col, "phase", "window_id_gt", "is_changepoint"}
+            exclude = {self.timestamp_col, self.target_col, "phase", "window_id_gt", "is_changepoint", "true_cp"}
             feature_cols = [
                 col for col in df.columns
                 if col not in exclude and pd.api.types.is_numeric_dtype(df[col])
