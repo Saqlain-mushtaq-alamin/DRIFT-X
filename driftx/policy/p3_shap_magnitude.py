@@ -17,6 +17,10 @@ class ShapMagnitudePolicy(RetrainingPolicy):
     def policy_id(self) -> str:
         return "p3_shap_magnitude"
 
+    @property
+    def needs_shap(self) -> bool:
+        return True
+
     def decide(
         self,
         window_id: int,
