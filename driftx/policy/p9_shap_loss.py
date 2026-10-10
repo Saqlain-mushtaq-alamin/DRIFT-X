@@ -22,6 +22,10 @@ class ShapLossPolicy(RetrainingPolicy):
     def policy_id(self) -> str:
         return "p9_shap_loss"
 
+    @property
+    def needs_shap(self) -> bool:
+        return True
+
     def decide(
         self,
         window_id: int,
@@ -68,7 +72,7 @@ class ShapLossPolicy(RetrainingPolicy):
 
         should_retrain = bool(z_score >= self.threshold)
         if should_retrain:
-            self.previous_loss_profile = curr_loss_prof
+            self.previous_loss_profile = None
 
         return PolicyDecision(
             should_retrain=should_retrain,
