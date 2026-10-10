@@ -1,0 +1,72 @@
+data:
+  data_source_type: synthetic
+  dataset: fraud
+  min_window_samples: 1000
+  target_col: isFraud
+  timestamp_col: TransactionDT
+  window_size: monthly
+detection:
+  ks_alpha: 0.05
+  psi_threshold: 0.2
+  statistical_method: ks
+evaluation:
+  cost_metric: retrain_count
+  metrics:
+  - accuracy
+  - f1_weighted
+  - precision_weighted
+  - recall_weighted
+explainability:
+  magnitude_threshold: 0.03
+  max_shap_samples: 500
+  rank_change_threshold: 0.035
+  shap_method: tree
+fusion:
+  adaptive_lambda: 1.92
+  adaptive_lookback: 10
+  alpha: 0.4
+  beta: 0.4
+  clip_max: 5.0
+  fixed_threshold: 2.5
+  gamma: 0.2
+  gating_channel_threshold: 1.5
+  gating_min_channels: 2
+  gating_mode: two_channel
+  threshold_mode: fixed
+  use_calibrated_zscore: true
+  warmup_threshold: .inf
+mlflow:
+  experiment_name: driftx_main
+  tracking_uri: mlruns
+model:
+  params:
+    eval_metric: logloss
+    learning_rate: 0.1
+    max_depth: 6
+    n_estimators: 200
+    use_label_encoder: false
+  type: xgboost
+output:
+  plot_format: png
+  results_dir: results
+  save_csv: true
+  save_plots: true
+policy:
+  active_policies:
+  - p0_never
+  - p1_fixed
+  - p2_drift_only
+  - p3_shap_magnitude
+  - p4_shap_rank
+  - p5_dis_fused
+  - p6_performance_drop
+  - p7_weighted_ks
+  - p8_random_budget
+  - p9_shap_loss
+  fixed_schedule_interval: 3
+  fixed_threshold: 20.0
+  ks_threshold: 20.0
+project:
+  n_seeds: 5
+  name: driftx
+  seed: 42
