@@ -100,7 +100,10 @@ class KSDriftDetector:
             if w_sum > 1e-10:
                 weighted_drift_score = float(sum(w * v["statistic"] for w, v in zip(w_list, results.values())) / w_sum)
                 weighted_d_ratio = float(sum(w * v["d_ratio"] for w, v in zip(w_list, results.values())) / w_sum)
-                weighted_z_score = float(max(0.0, (weighted_d_ratio - ks_null_mean) / ks_null_std))
+                w_arr = np.array(w_list) / w_sum
+                n_eff = float(1.0 / np.sum(w_arr ** 2))
+                w_std = max(0.1917 / np.sqrt(n_eff), 0.02)
+                weighted_z_score = float(max(0.0, (weighted_d_ratio - ks_null_mean) / w_std))
 
         # Flag drift if 50% or more features drifted OR calibrated ratio exceeds 1.0
         drift_detected = bool(drift_fraction >= 0.5 or mean_d_ratio >= 1.0)
