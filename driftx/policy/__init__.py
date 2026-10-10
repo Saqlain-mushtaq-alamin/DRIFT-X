@@ -19,6 +19,9 @@ from driftx.policy.streaming_baselines import (
 )
 
 
+from driftx.policy.p14_oracle import OraclePolicy, cp_scores
+
+
 POLICY_REGISTRY = {
     "p0_never": NeverRetrainPolicy,
     "p1_fixed": FixedSchedulePolicy,
@@ -34,6 +37,7 @@ POLICY_REGISTRY = {
     "p11_ddm": DDMPolicy,
     "p12_kswin": KSWINPolicy,
     "p13_page_hinkley": PageHinkleyPolicy,
+    "p14_oracle": OraclePolicy,
 }
 
 
@@ -71,6 +75,17 @@ def create_all_policies(config: dict) -> Dict[str, RetrainingPolicy]:
             kwargs["seed"] = config.get("seed", 42)
         elif pid == "p9_shap_loss":
             kwargs["threshold"] = config.get("shap_loss_threshold", config.get("p9_threshold", 2.0))
+        elif pid == "p10_adwin":
+            kwargs["delta"] = config.get("adwin_delta", 0.002)
+        elif pid == "p11_ddm":
+            kwargs["drift_threshold"] = config.get("ddm_drift_threshold", 3.0)
+        elif pid == "p12_kswin":
+            kwargs["alpha"] = config.get("kswin_alpha", 0.005)
+            kwargs["seed"] = config.get("seed", 42)
+        elif pid == "p13_page_hinkley":
+            kwargs["threshold"] = config.get("ph_threshold", config.get("page_hinkley_threshold", 50.0))
+        elif pid == "p14_oracle":
+            kwargs["change_points"] = config.get("oracle_cps", config.get("change_points", ()))
         policies[pid] = create_policy(pid, **kwargs)
     
     return policies
