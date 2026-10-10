@@ -57,7 +57,7 @@ class PerformanceDropPolicy(RetrainingPolicy):
         should_retrain = bool(drop >= self.delta)
         prev_baseline = self.baseline_accuracy
         if should_retrain:
-            self.baseline_accuracy = None  # Re-initialize on newly retrained model's next window
+            self.baseline_accuracy = None  # Re-initialize on newly retrained model
 
         return PolicyDecision(
             should_retrain=should_retrain,
@@ -66,3 +66,9 @@ class PerformanceDropPolicy(RetrainingPolicy):
             window_id=window_id,
             evidence={"drop": drop, "delta": self.delta, "baseline_accuracy": prev_baseline, "current_accuracy": curr_acc},
         )
+
+    def on_retrain(self, train_metrics: Dict[str, Any]):
+        """Update baseline accuracy directly from model training metrics."""
+        val_acc = train_metrics.get("val_accuracy", None)
+        if val_acc is not None and not np.isnan(val_acc):
+            self.baseline_accuracy = float(val_acc)
