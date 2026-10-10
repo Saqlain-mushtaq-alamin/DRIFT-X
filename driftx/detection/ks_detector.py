@@ -93,19 +93,21 @@ class KSDriftDetector:
         # Importance-weighted KS if weights provided
         weighted_drift_score = continuous_score
         weighted_d_ratio = mean_d_ratio
+        weighted_z_score = z_score
         if feature_weights is not None:
             w_list = [max(float(feature_weights.get(f, 0.0)), 0.0) for f in results.keys()]
             w_sum = sum(w_list)
             if w_sum > 1e-10:
                 weighted_drift_score = float(sum(w * v["statistic"] for w, v in zip(w_list, results.values())) / w_sum)
                 weighted_d_ratio = float(sum(w * v["d_ratio"] for w, v in zip(w_list, results.values())) / w_sum)
+                weighted_z_score = float(max(0.0, (weighted_d_ratio - ks_null_mean) / ks_null_std))
 
         # Flag drift if 50% or more features drifted OR calibrated ratio exceeds 1.0
         drift_detected = bool(drift_fraction >= 0.5 or mean_d_ratio >= 1.0)
 
         logger.info(
             f"KS-Test results: {n_drifted}/{n_tested} features drifted "
-            f"(continuous_score={continuous_score:.3f}, mean_D/D_crit={mean_d_ratio:.3f}, z={z_score:.2f}, detected={drift_detected})"
+            f"(continuous_score={continuous_score:.3f}, mean_D/D_crit={mean_d_ratio:.3f}, z={z_score:.2f}, weighted_z={weighted_z_score:.2f}, detected={drift_detected})"
         )
 
         return {
@@ -114,6 +116,7 @@ class KSDriftDetector:
             "mean_d_ratio": mean_d_ratio,          # mean D / D_crit (~0.64 under null, >1 under real drift)
             "d_crit": avg_d_crit,                  # Mean critical value
             "z_score": z_score,                    # Calibrated z-score in noise units
+            "weighted_z_score": weighted_z_score,  # Importance-weighted calibrated z-score
             "weighted_drift_score": weighted_drift_score,
             "weighted_d_ratio": weighted_d_ratio,
             "drift_fraction": drift_fraction,      # Legacy discrete fraction
