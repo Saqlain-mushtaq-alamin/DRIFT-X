@@ -56,7 +56,7 @@ POLICY_SWEEPS: Dict[str, Dict[str, Any]] = {
     },
     "p2_drift_only": {
         "param_name": "ks_threshold",
-        "param_values": [1.5, 2.0, 2.5, 3.0, 4.0],
+        "param_values": [3.0, 5.0, 10.0, 20.0, 50.0, 100.0],
         "config_keys": ("policy", "ks_threshold"),
     },
     "p5_dis_fused": {
