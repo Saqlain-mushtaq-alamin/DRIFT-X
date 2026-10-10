@@ -384,7 +384,7 @@ class ExperimentRunner:
                 # 6. DIS (fused score)
                 if use_calibration:
                     dis_result = dis_computer.compute(
-                        stat_drift_score=stat_drift.get("z_score", stat_drift["drift_score"]),
+                        stat_drift_score=stat_drift.get("weighted_z_score", stat_drift.get("z_score", stat_drift["drift_score"])),
                         shap_magnitude_score=mag_result.get("z_score", mag_result["magnitude_score"]),
                         shap_rank_change_score=rank_result.get("z_score", rank_result["rank_change_score"]),
                         window_id=w_idx,
