@@ -52,6 +52,17 @@ from driftx.experiment.config_hash import compute_config_hash, get_run_timestamp
 logger = logging.getLogger(__name__)
 
 
+def get_git_commit() -> str:
+    try:
+        import subprocess
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        return commit[:12]
+    except Exception:
+        return "unknown"
+
+
 class ExperimentRunner:
     """Orchestrates the full DRIFT-X experiment pipeline."""
     
@@ -228,7 +239,7 @@ class ExperimentRunner:
             lambda_val=self.config["fusion"].get("adaptive_lambda", 1.92),
             min_threshold=self.config["fusion"].get("min_threshold", 0.05),
             warmup_threshold=self.config["fusion"].get("warmup_threshold", float("inf")),
-            fixed_threshold=self.config["fusion"].get("fixed_threshold", 3.0),
+            fixed_threshold=self.config["fusion"].get("dis_threshold", self.config["fusion"].get("fixed_threshold", 3.0)),
             mode=self.config["fusion"].get("threshold_mode", "fixed"),
         )
         label_delay = self.config.get("project", {}).get("label_delay", 0)
@@ -270,14 +281,18 @@ class ExperimentRunner:
             # Set drift detection reference
             detector.set_reference(windows[0].X)
             
-            # Compute initial SHAP profile and reference feature weights
-            shap_result = shap_computer.compute(
-                trainer.get_model(), windows[0].X
-            )
-            noise_floor_w0 = shap_result.get("noise_floor", {})
-            mag_tracker.update_and_compare(shap_result["mean_abs_shap"], noise_floor=noise_floor_w0)
-            rank_tracker.update_and_compare(shap_result["mean_abs_shap"], noise_floor=noise_floor_w0)
-            ref_feature_weights = shap_result["mean_abs_shap"].to_dict()
+            # Compute initial SHAP profile and reference feature weights if policy needs SHAP
+            needs_shap = getattr(policy, "needs_shap", False)
+            if needs_shap:
+                shap_result = shap_computer.compute(
+                    trainer.get_model(), windows[0].X
+                )
+                noise_floor_w0 = shap_result.get("noise_floor", {})
+                mag_tracker.update_and_compare(shap_result["mean_abs_shap"], noise_floor=noise_floor_w0)
+                rank_tracker.update_and_compare(shap_result["mean_abs_shap"], noise_floor=noise_floor_w0)
+                ref_feature_weights = shap_result["mean_abs_shap"].to_dict()
+            else:
+                ref_feature_weights = None
             
             # Log window 0 — accuracy is NaN (no evaluation possible yet).
             w0_row = {
@@ -363,50 +378,57 @@ class ExperimentRunner:
                 # 2. Statistical drift detection
                 stat_drift = detector.detect(window.X, feature_weights=ref_feature_weights)
                 
-                # 3. SHAP computation
-                shap_result = shap_computer.compute(
-                    trainer.get_model(), window.X
-                )
-                noise_floor = shap_result.get("noise_floor", {})
-                
-                # 4. SHAP magnitude tracking (calibrated with noise floor)
-                mag_result = mag_tracker.update_and_compare(
-                    shap_result["mean_abs_shap"],
-                    noise_floor=noise_floor,
-                )
-                
-                # 5. SHAP rank-change tracking (calibrated with noise floor on top features)
-                rank_result = rank_tracker.update_and_compare(
-                    shap_result["mean_abs_shap"],
-                    noise_floor=noise_floor,
-                )
-                
-                # 6. DIS (fused score)
-                if use_calibration:
-                    dis_result = dis_computer.compute(
-                        stat_drift_score=stat_drift.get("weighted_z_score", stat_drift.get("z_score", stat_drift["drift_score"])),
-                        shap_magnitude_score=mag_result.get("z_score", mag_result["magnitude_score"]),
-                        shap_rank_change_score=rank_result.get("z_score", rank_result["rank_change_score"]),
+                # 3-7. Explainability & DIS Fusion (skipped if policy does not need SHAP)
+                if needs_shap:
+                    shap_result = shap_computer.compute(
+                        trainer.get_model(), window.X
+                    )
+                    noise_floor = shap_result.get("noise_floor", {})
+
+                    # 4. SHAP magnitude tracking (calibrated with noise floor)
+                    mag_result = mag_tracker.update_and_compare(
+                        shap_result["mean_abs_shap"],
+                        noise_floor=noise_floor,
+                    )
+
+                    # 5. SHAP rank-change tracking (calibrated with noise floor on top features)
+                    rank_result = rank_tracker.update_and_compare(
+                        shap_result["mean_abs_shap"],
+                        noise_floor=noise_floor,
+                    )
+
+                    # 6. DIS (fused score)
+                    if use_calibration:
+                        dis_result = dis_computer.compute(
+                            stat_drift_score=stat_drift.get("weighted_z_score", stat_drift.get("z_score", stat_drift["drift_score"])),
+                            shap_magnitude_score=mag_result.get("z_score", mag_result["magnitude_score"]),
+                            shap_rank_change_score=rank_result.get("z_score", rank_result["rank_change_score"]),
+                            window_id=w_idx,
+                        )
+                    else:
+                        normalized = signal_normalizer.normalize(
+                            stat=stat_drift["drift_score"],
+                            mag=mag_result["magnitude_score"],
+                            rank=rank_result["rank_change_score"],
+                        )
+                        dis_result = dis_computer.compute(
+                            stat_drift_score=normalized["stat"],
+                            shap_magnitude_score=normalized["magnitude"],
+                            shap_rank_change_score=normalized["rank_change"],
+                            window_id=w_idx,
+                        )
+
+                    # 7. Adaptive threshold decision
+                    atc_result = atc.update_and_decide(
+                        dis_value=dis_result["dis"],
                         window_id=w_idx,
                     )
                 else:
-                    normalized = signal_normalizer.normalize(
-                        stat=stat_drift["drift_score"],
-                        mag=mag_result["magnitude_score"],
-                        rank=rank_result["rank_change_score"],
-                    )
-                    dis_result = dis_computer.compute(
-                        stat_drift_score=normalized["stat"],
-                        shap_magnitude_score=normalized["magnitude"],
-                        shap_rank_change_score=normalized["rank_change"],
-                        window_id=w_idx,
-                    )
-                
-                # 7. Adaptive threshold decision
-                atc_result = atc.update_and_decide(
-                    dis_value=dis_result["dis"],
-                    window_id=w_idx,
-                )
+                    mag_result = {"magnitude_score": 0.0, "z_score": 0.0, "drift_detected": False}
+                    rank_result = {"rank_change_score": 0.0, "z_score": 0.0, "drift_detected": False}
+                    dis_result = {"dis": 0.0, "raw_dis": 0.0, "is_gated": True, "active_channels": 0, "z_stat": 0.0, "z_mag": 0.0, "z_rank": 0.0}
+                    atc_result = {"should_retrain": False, "threshold": 0.0, "is_warmup": False}
+
                 last_dis_result = dis_result
                 last_atc_result = atc_result
                 
@@ -440,34 +462,15 @@ class ExperimentRunner:
                     
                     # Update drift reference to the newly trained window
                     detector.set_reference(window.X)
-                    
-                    # Re-establish SHAP reference profile for the newly trained model on the retraining window
-                    shap_result_retrain = shap_computer.compute(
-                        trainer.get_model(), window.X
-                    )
-                    mag_tracker.previous_profile = shap_result_retrain["mean_abs_shap"].copy()
-                    rank_tracker.previous_profile = shap_result_retrain["mean_abs_shap"].copy()
-                    ref_feature_weights = shap_result_retrain["mean_abs_shap"].to_dict()
 
-                    # Neither the normalizer nor the ATC is reset on retrain.
-                    # - Normalizer: signal scales (KS stat, SHAP L1/2, Spearman rho)
-                    #   are properties of the data/feature set, not the model.
-                    # - ATC: must accumulate DIS history across epochs to exit warmup.
-                    
-                    # Re-compute SHAP for new model baseline
-                    shap_result = shap_computer.compute(
-                        trainer.get_model(), window.X
-                    )
-                    noise_floor_post = shap_result.get("noise_floor", {})
-                    mag_tracker.update_and_compare(
-                        shap_result["mean_abs_shap"],
-                        noise_floor=noise_floor_post,
-                    )
-                    rank_tracker.update_and_compare(
-                        shap_result["mean_abs_shap"],
-                        noise_floor=noise_floor_post,
-                    )
-                    ref_feature_weights = shap_result["mean_abs_shap"].to_dict()
+                    if needs_shap:
+                        # Re-establish SHAP reference profile for the newly trained model on the retraining window
+                        shap_result_retrain = shap_computer.compute(
+                            trainer.get_model(), window.X
+                        )
+                        mag_tracker.previous_profile = shap_result_retrain["mean_abs_shap"].copy()
+                        rank_tracker.previous_profile = shap_result_retrain["mean_abs_shap"].copy()
+                        ref_feature_weights = shap_result_retrain["mean_abs_shap"].to_dict()
                     
                     logger.info(
                         f"  RETRAINED: cost={retrain_cost:.2f}s "
