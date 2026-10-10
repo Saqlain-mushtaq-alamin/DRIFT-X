@@ -11,6 +11,12 @@ from driftx.policy.p6_performance_drop import PerformanceDropPolicy
 from driftx.policy.p7_weighted_ks import ImportanceWeightedKSPolicy
 from driftx.policy.p8_random_budget import RandomBudgetPolicy
 from driftx.policy.p9_shap_loss import ShapLossPolicy
+from driftx.policy.streaming_baselines import (
+    ADWINPolicy,
+    DDMPolicy,
+    KSWINPolicy,
+    PageHinkleyPolicy,
+)
 
 
 POLICY_REGISTRY = {
@@ -24,6 +30,10 @@ POLICY_REGISTRY = {
     "p7_weighted_ks": ImportanceWeightedKSPolicy,
     "p8_random_budget": RandomBudgetPolicy,
     "p9_shap_loss": ShapLossPolicy,
+    "p10_adwin": ADWINPolicy,
+    "p11_ddm": DDMPolicy,
+    "p12_kswin": KSWINPolicy,
+    "p13_page_hinkley": PageHinkleyPolicy,
 }
 
 
@@ -79,6 +89,10 @@ __all__ = [
     "ImportanceWeightedKSPolicy",
     "RandomBudgetPolicy",
     "ShapLossPolicy",
+    "ADWINPolicy",
+    "DDMPolicy",
+    "KSWINPolicy",
+    "PageHinkleyPolicy",
     "POLICY_REGISTRY",
     "create_policy",
     "create_all_policies",
