@@ -50,6 +50,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from driftx.experiment.runner import ExperimentRunner
+from driftx.experiment.load_config import load_frozen
 
 logging.basicConfig(
     level=logging.WARNING,  # suppress per-window chatter
@@ -78,17 +79,20 @@ def generate_null_stream(
         elec_path = PROJECT_ROOT / "data" / "raw" / "electricity.csv"
         if elec_path.exists():
             df_raw = pd.read_csv(elec_path)
-            # Use the first 5000 rows as a stationary reference slice
-            slice_df = df_raw.iloc[:min(5000, len(df_raw))].copy()
-            exclude_cols = {"class", "target", "date", "day", "period", "Timestamp", "TransactionDT"}
-            feature_cols = [c for c in slice_df.columns if c not in exclude_cols and np.issubdtype(slice_df[c].dtype, np.number)]
-            target_col = "target" if "target" in slice_df.columns else "class"
             rng = np.random.RandomState(seed)
+            # Shuffle the full ELEC2 dataset once without replacement
+            perm = rng.permutation(len(df_raw))
+            # date is explicitly excluded as it is a timestamp/date leak
+            exclude_cols = {"class", "target", "date", "Timestamp", "TransactionDT", "phase", "window_id_gt", "is_changepoint", "true_cp"}
+            feature_cols = [c for c in df_raw.columns if c not in exclude_cols and np.issubdtype(df_raw[c].dtype, np.number)]
+            target_col = "target" if "target" in df_raw.columns else "class"
+
+            actual_windows = min(n_windows, len(df_raw) // samples_per_window)
             records = []
             time_step = 86400.0 * 30
-            for w in range(n_windows):
-                idx = rng.choice(len(slice_df), size=samples_per_window, replace=True)
-                sample = slice_df.iloc[idx].reset_index(drop=True)
+            for w in range(actual_windows):
+                idx = perm[w * samples_per_window : (w + 1) * samples_per_window]
+                sample = df_raw.iloc[idx].reset_index(drop=True)
                 if sample[target_col].dtype == object or isinstance(sample[target_col].iloc[0], str):
                     y_w = (sample[target_col].astype(str).str.upper() == "UP").astype(int)
                 else:
@@ -98,11 +102,14 @@ def generate_null_stream(
                 timestamps = np.sort(rng.uniform(w_start, w_end, size=samples_per_window))
                 for i in range(samples_per_window):
                     row = {"TransactionDT": timestamps[i], "isFraud": int(y_w.iloc[i])}
-                    for f_idx, col in enumerate(feature_cols[:n_features]):
+                    for f_idx, col in enumerate(feature_cols):
                         row[f"feature_{f_idx}"] = float(sample[col].iloc[i])
                     records.append(row)
             df = pd.DataFrame(records)
-            logger.info(f"Generated elec2_null stream: {len(df):,} rows from stationary ELEC2 slice.")
+            logger.info(
+                f"Generated elec2_null stream: {len(df):,} rows ({actual_windows} disjoint windows of {samples_per_window}) "
+                f"from shuffled ELEC2 without replacement (date excluded)."
+            )
             return df
 
     rng = np.random.RandomState(seed)
@@ -172,8 +179,8 @@ def run_null_stream_experiment(
     null_type: str = "independent",
     seed_start: int = 101,
 ) -> pd.DataFrame:
-    """Run all 10 policies on the null stream and report false-positive retrain counts."""
-    config = {
+    """Run all policies on the null stream using frozen config and report false-positive retrain counts."""
+    config = load_frozen({
         "project": {"name": f"null_stream_{null_type}", "seed": seed_start, "n_seeds": n_seeds},
         "data": {
             "dataset": "fraud",
@@ -183,41 +190,9 @@ def run_null_stream_experiment(
             "min_window_samples": 500,
             "data_source_type": f"synthetic_null_{null_type}",
         },
-        "model": {
-            "type": "xgboost",
-            "params": {"n_estimators": 100, "max_depth": 5, "eval_metric": "logloss"},
-        },
-        "detection": {"statistical_method": "ks", "ks_alpha": 0.05},
-        "explainability": {
-            "shap_method": "tree",
-            "max_shap_samples": 200,
-            "magnitude_threshold": 0.030,
-            "rank_change_threshold": 0.035,
-        },
-        "fusion": {
-            "alpha": 0.4, "beta": 0.4, "gamma": 0.2,
-            "use_calibrated_zscore": True,
-            "clip_max": 5.0,
-            "gating_mode": "two_channel",
-            "gating_channel_threshold": 2.5,
-            "gating_min_channels": 2,
-            "threshold_mode": "fixed",
-            "fixed_threshold": 3.0,
-            "warmup_threshold": float("inf"),
-            "adaptive_lookback": 10,
-            "adaptive_lambda": 1.92,
-        },
-        "policy": {
-            "active_policies": [
-                "p0_never", "p1_fixed", "p2_drift_only",
-                "p3_shap_magnitude", "p4_shap_rank", "p5_dis_fused",
-                "p6_performance_drop", "p7_weighted_ks", "p8_random_budget", "p9_shap_loss",
-            ],
-            "fixed_schedule_interval": 3,
-        },
-        "evaluation": {"metrics": ["accuracy"], "cost_metric": "retrain_count"},
+        "mlflow": {"enabled": False},
         "output": {"results_dir": str(PROJECT_ROOT / "results")},
-    }
+    })
 
     all_rows = []
     seeds = [seed_start + i for i in range(n_seeds)]
