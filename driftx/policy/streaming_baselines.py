@@ -14,8 +14,8 @@ try:
     from river.drift import ADWIN, KSWIN, PageHinkley
     from river.drift.binary import DDM
     HAS_RIVER = True
-except ImportError:
-    HAS_RIVER = False
+except ImportError as e:
+    raise ImportError("pip install 'river>=0.21' to use p10-p13") from e
 
 
 class ADWINPolicy(RetrainingPolicy):
@@ -147,15 +147,21 @@ class DDMPolicy(RetrainingPolicy):
 class KSWINPolicy(RetrainingPolicy):
     """KSWIN (Kolmogorov-Smirnov Windowing) drift detector on model predictions."""
 
-    def __init__(self, alpha: float = 0.005, window_size: int = 200, stat_size: int = 30):
+    def __init__(self, alpha: float = 0.005, window_size: int = 200, stat_size: int = 30, seed: Optional[int] = None):
         self.alpha = alpha
         self.window_size = window_size
         self.stat_size = stat_size
+        self.seed = seed
         self._init_detector()
 
     def _init_detector(self):
         if HAS_RIVER:
-            self.detector = KSWIN(alpha=self.alpha, window_size=self.window_size, stat_size=self.stat_size)
+            self.detector = KSWIN(
+                alpha=self.alpha,
+                window_size=self.window_size,
+                stat_size=self.stat_size,
+                seed=self.seed,
+            )
         else:
             self.detector = None
 
