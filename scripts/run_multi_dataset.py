@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from driftx.experiment.runner import ExperimentRunner
+from driftx.experiment.load_config import load_frozen
 from scripts.generate_tables import generate_cross_dataset_table
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -21,6 +22,12 @@ DATASET_CONFIGS = {
     "Intrusion": "configs/datasets/intrusion.yaml",
     "Electricity": "configs/datasets/electricity.yaml",
 }
+
+ALL_POLICIES = [
+    "p0_never", "p1_fixed", "p2_drift_only",
+    "p3_shap_magnitude", "p4_shap_rank", "p5_dis_fused",
+    "p6_performance_drop", "p7_weighted_ks", "p8_random_budget", "p9_shap_loss",
+]
 
 
 def run_multi_dataset(
@@ -33,10 +40,8 @@ def run_multi_dataset(
 
     Args:
         datasets: List of datasets to run ('Fraud', 'Intrusion', 'Electricity').
-        policies: Policies to evaluate (defaults to ['p0_never', 'p2_drift_only', 'p5_dis_fused']).
+        policies: Policies to evaluate (defaults to all 10 policies).
         n_seeds: Number of random seeds per policy (default: 3).
-            Fraud and Intrusion are SYNTHETIC benchmarks, so we use 3 seeds to get
-            a meaningful std estimate.  Electricity uses whatever is passed.
 
     Returns:
         Dict mapping dataset name to results CSV path.
@@ -44,15 +49,11 @@ def run_multi_dataset(
     if datasets is None:
         datasets = ["Fraud", "Intrusion", "Electricity"]
     if policies is None:
-        policies = ["p0_never", "p2_drift_only", "p5_dis_fused"]
+        policies = ALL_POLICIES
 
     results_dir = PROJECT_ROOT / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     results_map = {}
-
-    default_config_path = PROJECT_ROOT / "configs" / "default.yaml"
-    with open(default_config_path, "r", encoding="utf-8") as f:
-        base_config = yaml.safe_load(f)
 
     for ds_name in datasets:
         cfg_rel_path = DATASET_CONFIGS.get(ds_name)
@@ -64,15 +65,15 @@ def run_multi_dataset(
         with open(cfg_path, "r", encoding="utf-8") as f:
             loaded_cfg = yaml.safe_load(f)
 
-        import copy
-        ds_config = copy.deepcopy(base_config)
+        ds_config = load_frozen({
+            "project": {"n_seeds": n_seeds},
+            "policy": {"active_policies": policies},
+            "mlflow": {"enabled": False},
+        })
         if "data" in loaded_cfg and isinstance(loaded_cfg["data"], dict):
             ds_config["data"].update(loaded_cfg["data"])
         elif "dataset" in loaded_cfg:
             ds_config["data"].update(loaded_cfg)
-
-        ds_config["policy"]["active_policies"] = policies
-        ds_config["project"]["n_seeds"] = n_seeds
 
         slug = ds_name.lower()
         out_filename = f"experiment_results_{slug}.csv"
@@ -94,7 +95,7 @@ def main():
     parser = argparse.ArgumentParser(description="DRIFT-X Multi-Dataset Runner")
     parser.add_argument("--datasets", nargs="+", default=["Fraud", "Intrusion", "Electricity"],
                         help="List of datasets to benchmark")
-    parser.add_argument("--policies", nargs="+", default=["p0_never", "p2_drift_only", "p5_dis_fused"],
+    parser.add_argument("--policies", nargs="+", default=ALL_POLICIES,
                         help="Policies to run across datasets")
     parser.add_argument("--seeds", type=int, default=1,
                         help="Number of seeds")
