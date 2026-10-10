@@ -244,6 +244,30 @@ if p9.exists():
     content.append(sens_sum.to_markdown(index=False))
     content.append("\n")
 
+# 10. Matched-Budget Multi-Stream Evaluation & Hypothesis Testing
+p10_metrics = Path("results/budget_curves_mixed_metrics.csv")
+p10_tests = Path("results/budget_curves_mixed_tests.csv")
+if p10_metrics.exists():
+    df_m = pd.read_csv(p10_metrics)
+    content.append("## 10. Matched-Budget Multi-Stream Evaluation (30 Streams, seeds 1000-1029)\n")
+    summary_m = df_m.groupby("policy").agg(
+        acc_at_3=("acc@3", "mean"),
+        acc_at_4=("acc@4", "mean"),
+        acc_at_5=("acc@5", "mean"),
+        curve_auc=("auc", "mean"),
+        cp_recall=("mean_cp_recall", "mean"),
+        cp_precision=("mean_cp_precision", "mean"),
+    ).reset_index().sort_values("curve_auc", ascending=False).round(4)
+    content.append("### Matched-Budget Performance Summary\n")
+    content.append(summary_m.to_markdown(index=False))
+    content.append("\n")
+
+if p10_tests.exists():
+    df_t = pd.read_csv(p10_tests)
+    content.append("### Paired Statistical Tests vs Competitors (Wilcoxon Signed-Rank with Holm-Bonferroni & 95% Bootstrap CIs)\n")
+    content.append(df_t.to_markdown(index=False))
+    content.append("\n> **Disclosure:** P6 and P10 require ground truth labels at decision time. P0, P1, P2, P5, P8 operate in an unsupervised setting without labels.\n\n")
+
 output_path = Path("planning/results_summary.md")
 output_path.parent.mkdir(parents=True, exist_ok=True)
 output_path.write_text("\n".join(content), encoding="utf-8")

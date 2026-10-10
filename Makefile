@@ -50,8 +50,16 @@ run-changepoints:
 run-ablation:
 	python scripts/run_ablation.py
 
+# Multi-stream evaluation (30 random streams)
+run-multi-stream:
+	python scripts/run_multi_stream.py --n-streams 30 --seed-start 1000
+
+# Matched-budget accuracy-vs-retrain curves (30 streams, paired Wilcoxon tests)
+run-budget-curves:
+	python scripts/run_budget_curves.py --regime mixed --seed-start 1000 --n-streams 30 --n-jobs 4
+
 # Full honest re-run sequence (all experiments)
-run-all-honest: run-main run-multi run-curves run-sensitivity run-null run-changepoints run-ablation
+run-all-honest: run-budget-curves run-multi run-sensitivity run-null
 
 clean:
 	rm -rf build/ dist/ *.egg-info .pytest_cache .coverage htmlcov
