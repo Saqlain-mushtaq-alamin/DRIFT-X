@@ -34,6 +34,7 @@ except ImportError:
     mlflow = None
 
 from driftx.experiment.runner import ExperimentRunner
+from driftx.experiment.load_config import load_frozen
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("SensitivityAnalysis")
@@ -64,83 +65,75 @@ def _load_holdout_stream(seed: int = HOLDOUT_SEED, n_windows: int = 20) -> pd.Da
 
 
 def run_sensitivity(config_path: Optional[str] = None):
-    if config_path is None:
-        cfg_file = PROJECT_ROOT / "configs" / "default.yaml"
-    else:
-        cfg_file = Path(config_path)
-    
-    with open(cfg_file, "r", encoding="utf-8") as f:
-        base_config = yaml.safe_load(f)
-
     if HOLDOUT_SEED in EVAL_SEEDS:
         raise ValueError(
             f"HOLDOUT_SEED={HOLDOUT_SEED} overlaps with evaluation seeds {sorted(EVAL_SEEDS)}. "
             "Choose a different holdout seed."
         )
-    
-    # Load held-out stream — NEVER the evaluation stream.
+
     logger.info(
         f"Loading sensitivity holdout stream (seed={HOLDOUT_SEED}). "
         f"Evaluation seeds {sorted(EVAL_SEEDS)} are kept separate."
     )
     df_holdout = _load_holdout_stream(seed=HOLDOUT_SEED, n_windows=20)
-    
+
     all_results = []
-    
-    # Use n_seeds=3 for more stable estimates at each grid point.
     GRID_SEEDS = 3
-    
+
     for lambda_val, lookback in product(LAMBDA_VALUES, LOOKBACK_VALUES):
         logger.info(f"Testing sensitivity hyperparameter grid point: λ={lambda_val}, k={lookback}")
-        
-        config = copy.deepcopy(base_config)
-        config["fusion"]["adaptive_lambda"] = lambda_val
-        config["fusion"]["adaptive_lookback"] = lookback
-        config["policy"]["active_policies"] = ["p5_dis_fused"]
-        # Use holdout-only seeds (not overlapping 42-46)
-        config["project"]["seed"] = HOLDOUT_SEED
-        config["project"]["n_seeds"] = GRID_SEEDS
-        config.setdefault("mlflow", {})["experiment_name"] = "driftx_sensitivity"
-        
-        if mlflow is not None:
-            try:
-                mlflow.set_tracking_uri(config["mlflow"].get("tracking_uri", "mlruns"))
-                mlflow.set_experiment(config["mlflow"]["experiment_name"])
-            except Exception as e:
-                logger.warning(f"MLflow setup warning: {e}")
-        
+
+        config = load_frozen({
+            "project": {"seed": HOLDOUT_SEED, "n_seeds": GRID_SEEDS},
+            "fusion": {
+                "threshold_mode": "adaptive",
+                "adaptive_lambda": lambda_val,
+                "adaptive_lookback": lookback,
+                "warmup_threshold": 3.0,
+            },
+            "policy": {"active_policies": ["p5_dis_fused"]},
+            "mlflow": {"enabled": False},
+            "output": {"save_csv": False, "export_artifacts": False},
+        })
+
         runner = ExperimentRunner(config)
-        # Use a dedicated filename so we don't overwrite experiment_results.csv
         results = runner.run_all(
             df_override=df_holdout,
             output_filename="sensitivity_run_temp.csv",
         )
         results["lambda"] = lambda_val
         results["lookback"] = lookback
-        
+
         all_results.append(results)
-    
+
     combined = pd.concat(all_results, ignore_index=True)
-    out_dir = Path(base_config.get("output", {}).get("results_dir", "results"))
+    out_dir = PROJECT_ROOT / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / "sensitivity_results.csv"
     combined.to_csv(out_file, index=False)
     logger.info(f"Saved sensitivity results to {out_file}")
-    
-    # Print grid summary — excludes window_id==0 (NaN accuracy by design)
+
+    # Net retrains per seed on active evaluation windows (window_id > 0)
     eval_rows = combined[combined["window_id"] > 0]
-    summary = eval_rows.groupby(["lambda", "lookback"]).agg(
+    per_run = eval_rows.groupby(["lambda", "lookback", "seed"]).agg(
+        accuracy=("accuracy", "mean"),
+        retrains=("retrained", "sum"),
+    ).reset_index()
+
+    summary = per_run.groupby(["lambda", "lookback"]).agg(
         mean_accuracy=("accuracy", "mean"),
         std_accuracy=("accuracy", "std"),
-        mean_retrains=("retrain_count", "last"),
+        mean_retrains=("retrains", "mean"),
+        std_retrains=("retrains", "std"),
     ).reset_index().round(4)
 
     logger.info("\n=== Sensitivity Grid Summary (holdout stream, seed=%d) ===", HOLDOUT_SEED)
     logger.info(f"\n{summary.to_string(index=False)}")
 
     # Check against default config and warn if best differs
-    default_lambda = base_config.get("fusion", {}).get("adaptive_lambda", 1.5)
-    default_k = base_config.get("fusion", {}).get("adaptive_lookback", 3)
+    frozen_cfg = load_frozen()
+    default_lambda = frozen_cfg.get("fusion", {}).get("adaptive_lambda", 1.92)
+    default_k = frozen_cfg.get("fusion", {}).get("adaptive_lookback", 10)
     best_row = summary.sort_values("mean_accuracy", ascending=False).iloc[0]
     if best_row["lambda"] != default_lambda or best_row["lookback"] != default_k:
         logger.warning(
