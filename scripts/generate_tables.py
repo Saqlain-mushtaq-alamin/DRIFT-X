@@ -161,15 +161,20 @@ def generate_cross_dataset_table(
             p_df = df[df["policy"] == policy_id]
             if p_df.empty:
                 return {"acc_str": "N/A", "retrains": "N/A", "cost": "N/A"}
-            per_seed = p_df.groupby("seed").agg({
+            eval_p = p_df[p_df["window_id"] > 0] if (p_df["window_id"] > 0).any() else p_df
+            agg_dict = {
                 "accuracy": "mean",
                 "cumulative_cost": "last",
-                "cumulative_retrains": "last",
-            })
+            }
+            retrain_col = "retrained" if "retrained" in eval_p.columns else "cumulative_retrains"
+            retrain_func = "sum" if "retrained" in eval_p.columns else "last"
+            agg_dict[retrain_col] = retrain_func
+
+            per_seed = eval_p.groupby("seed").agg(agg_dict)
             m_acc = per_seed["accuracy"].mean()
             s_acc = per_seed["accuracy"].std() if len(per_seed) > 1 else 0.0
             m_cost = per_seed["cumulative_cost"].mean()
-            m_retrains = per_seed["cumulative_retrains"].mean()
+            m_retrains = per_seed[retrain_col].mean()
             return {
                 "acc_str": f"{m_acc:.4f} ± {s_acc:.4f}" if len(per_seed) > 1 else f"{m_acc:.4f}",
                 "retrains": f"{m_retrains:.1f}",
