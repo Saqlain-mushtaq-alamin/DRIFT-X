@@ -33,6 +33,11 @@ class RetrainingPolicy(ABC):
     def policy_id(self) -> str:
         """Machine-readable policy identifier (p0, p1, ...)."""
         pass
+
+    @property
+    def needs_shap(self) -> bool:
+        """Whether this policy requires computing SHAP values (default: False)."""
+        return False
     
     @abstractmethod
     def decide(
