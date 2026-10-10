@@ -86,6 +86,10 @@ class DriftImpactScore:
         if self.gating_mode == "two_channel":
             is_gated = active_count >= self.gating_min_channels
             dis = raw_dis if is_gated else 0.0
+        elif self.gating_mode == "soft":
+            # Soft continuous gate: scales DIS smoothly by channel agreement
+            is_gated = active_count > 0
+            dis = raw_dis * min(1.0, active_count / float(max(1, self.gating_min_channels)))
         elif self.gating_mode == "stat_and_shap":
             # Requires statistical drift AND at least one explainability signal
             is_gated = stat_active and (mag_active or rank_active)
