@@ -41,6 +41,7 @@ class WindowSplitter:
         self.target_col = config["target_col"]
         self.window_size = config.get("window_size", "monthly")
         self.min_samples = config.get("min_window_samples", 1000)
+        self.drop_cols = set(config.get("drop_columns", []))
 
     def split(
         self,
@@ -58,11 +59,12 @@ class WindowSplitter:
             List of non-overlapping Window objects.
         """
         if feature_cols is None:
-            exclude = {self.timestamp_col, self.target_col, "phase", "window_id_gt", "is_changepoint", "true_cp"}
+            exclude = {self.timestamp_col, self.target_col, "phase", "window_id_gt", "is_changepoint", "true_cp", *self.drop_cols}
             feature_cols = [
                 col for col in df.columns
                 if col not in exclude and pd.api.types.is_numeric_dtype(df[col])
             ]
+        logger.info(f"WindowSplitter using {len(feature_cols)} features: {feature_cols}")
 
         boundaries = self._compute_boundaries(df)
         windows: List[Window] = []
