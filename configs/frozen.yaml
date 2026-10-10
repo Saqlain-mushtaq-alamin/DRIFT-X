@@ -27,11 +27,12 @@ fusion:
   alpha: 0.4
   beta: 0.4
   clip_max: 5.0
-  fixed_threshold: 2.5
+  fixed_threshold: 1.0
+  dis_threshold: 1.0
   gamma: 0.2
-  gating_channel_threshold: 1.5
+  gating_channel_threshold: 2.0
   gating_min_channels: 2
-  gating_mode: two_channel
+  gating_mode: soft
   threshold_mode: fixed
   use_calibrated_zscore: true
   warmup_threshold: .inf
