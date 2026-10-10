@@ -21,6 +21,10 @@ class ImportanceWeightedKSPolicy(RetrainingPolicy):
     def policy_id(self) -> str:
         return "p7_weighted_ks"
 
+    @property
+    def needs_shap(self) -> bool:
+        return True
+
     def decide(
         self,
         window_id: int,
