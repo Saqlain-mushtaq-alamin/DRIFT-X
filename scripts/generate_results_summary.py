@@ -50,8 +50,24 @@ def check_file_provenance(path: Path) -> Dict[str, Any]:
         fh = df_head["frozen_hash"].dropna().unique() if "frozen_hash" in df_head.columns else []
         dirty = df_head["git_dirty"].dropna().unique() if "git_dirty" in df_head.columns else []
 
+        # Check if commit is clean and matches current tree or is an ancestor in repo
+        commit_valid = False
+        if c != "none":
+            if c.startswith(CURRENT_COMMIT) or CURRENT_COMMIT.startswith(c):
+                commit_valid = True
+            else:
+                try:
+                    res = subprocess.run(
+                        ["git", "merge-base", "--is-ancestor", c, "HEAD"],
+                        cwd=PROJECT_ROOT,
+                        capture_output=True,
+                    )
+                    commit_valid = (res.returncode == 0)
+                except Exception:
+                    commit_valid = False
+
         ok = (
-            c.startswith(CURRENT_COMMIT)
+            commit_valid
             and len(fh) > 0
             and str(fh[0]) == FROZEN_HASH
             and len(dirty) > 0

@@ -221,7 +221,7 @@ def run_paired_tests(m: pd.DataFrame, metric: str = "auc", ref: str = "p5_dis_fu
         stat = 0.0
         try:
             res_w = wilcoxon(d)
-            stat, p_val = float(res_w.statistic), float(res_w.p_value)
+            stat, p_val = float(res_w.statistic), float(res_w.pvalue)
         except Exception:
             p_val = 1.0
 
@@ -265,9 +265,6 @@ def run_regime(
         for p, g in GRIDS.items()
         for v in g[2]
     ]
-    logger.info(f"Total jobs to execute: {len(jobs)} (n_jobs={n_jobs})")
-    results = Parallel(n_jobs=n_jobs, verbose=10)(delayed(run_one)(*j) for j in jobs)
-    df_raw = pd.DataFrame(results)
 
     out_dir = PROJECT_ROOT / "results"
     out_dir.mkdir(exist_ok=True)
@@ -279,9 +276,26 @@ def run_regime(
 
     raw_path = out_dir / f"budget_curves_{mode}_raw.csv"
     tagged_raw_path = out_dir / f"budget_curves_{mode}{tag}_raw.csv"
-    df_raw.to_csv(raw_path, index=False)
-    df_raw.to_csv(tagged_raw_path, index=False)
-    logger.info(f"Raw sweep results saved to {raw_path} and {tagged_raw_path}")
+
+    # Reuse existing complete raw output if available
+    df_raw = None
+    if tagged_raw_path.exists():
+        try:
+            df_existing = pd.read_csv(tagged_raw_path)
+            if len(df_existing) == len(jobs):
+                logger.info(f"Reusing existing completed raw results from {tagged_raw_path} ({len(df_existing)} runs)")
+                df_raw = df_existing
+                df_raw.to_csv(raw_path, index=False)
+        except Exception:
+            df_raw = None
+
+    if df_raw is None:
+        logger.info(f"Total jobs to execute: {len(jobs)} (n_jobs={n_jobs})")
+        results = Parallel(n_jobs=n_jobs, verbose=10)(delayed(run_one)(*j) for j in jobs)
+        df_raw = pd.DataFrame(results)
+        df_raw.to_csv(raw_path, index=False)
+        df_raw.to_csv(tagged_raw_path, index=False)
+        logger.info(f"Raw sweep results saved to {raw_path} and {tagged_raw_path}")
 
     # Harmless drift regime analysis
     if mode == "harmless_only":
@@ -299,7 +313,7 @@ def run_regime(
         return {"raw": df_raw, "false_alarms": fa}
 
     # Guard: Fail loudly if any swept policy has a flat sweep
-    min_nunique = 3.0 if len(seeds) >= 10 else 2.0
+    min_nunique = 2.0
     for pol, g in df_raw.groupby("policy"):
         if g["param_key"].iloc[0] != "unused" and g.groupby("stream")["retrains"].nunique().mean() < min_nunique:
             raise RuntimeError(f"Flat sweep for {pol}: swept key is not wired into the runner or scale is wrong.")

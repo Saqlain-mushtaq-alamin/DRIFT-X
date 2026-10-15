@@ -115,7 +115,7 @@ def run_multi_stream_eval(
         # Paired Wilcoxon
         try:
             res_w = wilcoxon(diff_acc)
-            stat, p_val = float(res_w.statistic), float(res_w.p_value)
+            stat, p_val = float(res_w.statistic), float(res_w.pvalue)
         except Exception:
             stat, p_val = float("nan"), float("nan")
 
