@@ -13,7 +13,6 @@ from driftx.policy.base import RetrainingPolicy, PolicyDecision
 try:
     from river.drift import ADWIN, KSWIN, PageHinkley
     from river.drift.binary import DDM
-    HAS_RIVER = True
 except ImportError as e:
     raise ImportError("pip install 'river>=0.21' to use p10-p13") from e
 
@@ -26,10 +25,7 @@ class ADWINPolicy(RetrainingPolicy):
         self._init_detector()
 
     def _init_detector(self):
-        if HAS_RIVER:
-            self.detector = ADWIN(delta=self.delta)
-        else:
-            self.detector = None
+        self.detector = ADWIN(delta=self.delta)
 
     @property
     def name(self) -> str:
@@ -49,9 +45,6 @@ class ADWINPolicy(RetrainingPolicy):
         atc_result: Dict[str, Any],
         **kwargs: Any,
     ) -> PolicyDecision:
-        if not HAS_RIVER or self.detector is None:
-            return PolicyDecision(False, "River not installed", self.name, window_id)
-
         trainer = kwargs.get("trainer")
         window = kwargs.get("window")
         if trainer is None or window is None or window.y is None:
@@ -88,14 +81,11 @@ class DDMPolicy(RetrainingPolicy):
         self._init_detector()
 
     def _init_detector(self):
-        if HAS_RIVER:
-            self.detector = DDM(
-                warm_start=self.warm_start,
-                warning_threshold=self.warning_threshold,
-                drift_threshold=self.drift_threshold,
-            )
-        else:
-            self.detector = None
+        self.detector = DDM(
+            warm_start=self.warm_start,
+            warning_threshold=self.warning_threshold,
+            drift_threshold=self.drift_threshold,
+        )
 
     @property
     def name(self) -> str:
@@ -115,9 +105,6 @@ class DDMPolicy(RetrainingPolicy):
         atc_result: Dict[str, Any],
         **kwargs: Any,
     ) -> PolicyDecision:
-        if not HAS_RIVER or self.detector is None:
-            return PolicyDecision(False, "River not installed", self.name, window_id)
-
         trainer = kwargs.get("trainer")
         window = kwargs.get("window")
         if trainer is None or window is None or window.y is None:
@@ -155,15 +142,12 @@ class KSWINPolicy(RetrainingPolicy):
         self._init_detector()
 
     def _init_detector(self):
-        if HAS_RIVER:
-            self.detector = KSWIN(
-                alpha=self.alpha,
-                window_size=self.window_size,
-                stat_size=self.stat_size,
-                seed=self.seed,
-            )
-        else:
-            self.detector = None
+        self.detector = KSWIN(
+            alpha=self.alpha,
+            window_size=self.window_size,
+            stat_size=self.stat_size,
+            seed=self.seed,
+        )
 
     @property
     def name(self) -> str:
@@ -183,9 +167,6 @@ class KSWINPolicy(RetrainingPolicy):
         atc_result: Dict[str, Any],
         **kwargs: Any,
     ) -> PolicyDecision:
-        if not HAS_RIVER or self.detector is None:
-            return PolicyDecision(False, "River not installed", self.name, window_id)
-
         trainer = kwargs.get("trainer")
         window = kwargs.get("window")
         if trainer is None or window is None:
@@ -223,10 +204,7 @@ class PageHinkleyPolicy(RetrainingPolicy):
         self._init_detector()
 
     def _init_detector(self):
-        if HAS_RIVER:
-            self.detector = PageHinkley(threshold=self.threshold, delta=self.delta)
-        else:
-            self.detector = None
+        self.detector = PageHinkley(threshold=self.threshold, delta=self.delta)
 
     @property
     def name(self) -> str:
@@ -246,9 +224,6 @@ class PageHinkleyPolicy(RetrainingPolicy):
         atc_result: Dict[str, Any],
         **kwargs: Any,
     ) -> PolicyDecision:
-        if not HAS_RIVER or self.detector is None:
-            return PolicyDecision(False, "River not installed", self.name, window_id)
-
         trainer = kwargs.get("trainer")
         window = kwargs.get("window")
         if trainer is None or window is None or window.y is None:
