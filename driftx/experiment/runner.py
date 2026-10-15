@@ -63,6 +63,31 @@ def get_git_commit() -> str:
         return "unknown"
 
 
+def get_git_dirty() -> bool:
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["git", "status", "--porcelain"], stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        return len(out) > 0
+    except Exception:
+        return False
+
+
+def get_frozen_hash() -> str:
+    try:
+        import hashlib
+        from pathlib import Path
+        project_root = Path(__file__).resolve().parent.parent.parent
+        frozen_path = project_root / "configs" / "frozen.yaml"
+        if frozen_path.exists():
+            return hashlib.sha256(frozen_path.read_bytes()).hexdigest()[:12]
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+
+
 class ExperimentRunner:
     """Orchestrates the full DRIFT-X experiment pipeline."""
     
@@ -289,6 +314,7 @@ class ExperimentRunner:
                 and fusion_cfg.get("beta", 0.4) == 0.0
                 and fusion_cfg.get("gamma", 0.2) == 0.0
                 and fusion_cfg.get("gating_mode", "two_channel") in ("none", "")
+                and fusion_cfg.get("stat_weighting", "none") == "none"
             ):
                 needs_shap = False
             if needs_shap:
@@ -337,7 +363,9 @@ class ExperimentRunner:
                 "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.92),
                 "lookback_k": self.config["fusion"].get("adaptive_lookback", 10),
                 "config_hash": config_hash,
+                "frozen_hash": get_frozen_hash(),
                 "git_commit": get_git_commit(),
+                "git_dirty": get_git_dirty(),
                 "run_timestamp": run_timestamp,
                 # Provenance: is this dataset real or synthetic?
                 "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
@@ -435,8 +463,18 @@ class ExperimentRunner:
                 else:
                     mag_result = {"magnitude_score": 0.0, "z_score": 0.0, "drift_detected": False}
                     rank_result = {"rank_change_score": 0.0, "z_score": 0.0, "drift_detected": False}
-                    dis_result = {"dis": 0.0, "raw_dis": 0.0, "is_gated": True, "active_channels": 0, "z_stat": 0.0, "z_mag": 0.0, "z_rank": 0.0}
-                    atc_result = {"should_retrain": False, "threshold": 0.0, "is_warmup": False}
+                    if policy.policy_id == "p5_dis_fused":
+                        # stat-only DIS: no SHAP, unweighted calibrated KS z-score
+                        dis_result = dis_computer.compute(
+                            stat_drift_score=stat_drift.get("z_score", stat_drift["drift_score"]),
+                            shap_magnitude_score=0.0,
+                            shap_rank_change_score=0.0,
+                            window_id=w_idx,
+                        )
+                        atc_result = atc.update_and_decide(dis_value=dis_result["dis"], window_id=w_idx)
+                    else:
+                        dis_result = {"dis": 0.0, "raw_dis": 0.0, "is_gated": True, "active_channels": 0}
+                        atc_result = {"should_retrain": False, "threshold": 0.0, "is_warmup": False}
 
                 last_dis_result = dis_result
                 last_atc_result = atc_result
@@ -528,7 +566,9 @@ class ExperimentRunner:
                     "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.92),
                     "lookback_k": self.config["fusion"].get("adaptive_lookback", 10),
                     "config_hash": config_hash,
+                    "frozen_hash": get_frozen_hash(),
                     "git_commit": get_git_commit(),
+                    "git_dirty": get_git_dirty(),
                     "run_timestamp": run_timestamp,
                     # Provenance: is this dataset real or synthetic?
                     "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
