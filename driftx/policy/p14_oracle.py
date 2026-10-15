@@ -47,14 +47,30 @@ class OraclePolicy(RetrainingPolicy):
         )
 
 
-def cp_scores(res_pol: pd.DataFrame, cps: Iterable[int], tol: int = 2) -> Tuple[float, float]:
-    """Compute recall and precision of retrain events against true change points."""
+def cp_scores(
+    res_pol: pd.DataFrame,
+    cps: Iterable[int],
+    tol: int = 2,
+    cp_info: Any = None,
+) -> Tuple[float, float, float, float]:
+    """Compute overall recall, precision, visible recall, and invisible recall."""
     r = set(res_pol[(res_pol["window_id"] > 0) & res_pol["retrained"]]["window_id"])
     cps_set = set(cps)
     if not cps_set:
-        return 0.0, float("nan")
+        return 0.0, float("nan"), float("nan"), float("nan")
     hit = {c for c in cps_set if any(c <= w <= c + tol for w in r)}
     good = {w for w in r if any(c <= w <= c + tol for c in cps_set)}
     recall = len(hit) / len(cps_set)
     precision = len(good) / len(r) if r else float("nan")
-    return recall, precision
+
+    rec_vis = float("nan")
+    rec_invis = float("nan")
+    if cp_info and isinstance(cp_info, dict):
+        vis_cps = {c for c in cps_set if cp_info.get(c, False)}
+        invis_cps = {c for c in cps_set if not cp_info.get(c, False)}
+        hit_vis = {c for c in vis_cps if any(c <= w <= c + tol for w in r)}
+        hit_invis = {c for c in invis_cps if any(c <= w <= c + tol for w in r)}
+        rec_vis = len(hit_vis) / len(vis_cps) if vis_cps else float("nan")
+        rec_invis = len(hit_invis) / len(invis_cps) if invis_cps else float("nan")
+
+    return recall, precision, rec_vis, rec_invis
