@@ -27,7 +27,7 @@ def generate_random_drift_stream(
         n_windows: Number of sequential temporal windows.
         n: Number of samples per window.
         p: Total number of features.
-        drift_mode: One of 'mixed', 'gradual_only', 'concept_only', 'abrupt_only'.
+        drift_mode: One of 'mixed', 'gradual_only', 'concept_only', 'abrupt_only', 'harmless_only'.
         return_info: If True, returns (df, cps, cp_info) where cp_info maps cp -> is_covariate_visible.
 
     Returns:
@@ -37,7 +37,8 @@ def generate_random_drift_stream(
 
     # Random change points (not aligned with any fixed retraining schedule)
     n_cp = rng.randint(2, 5)
-    cps = sorted(rng.choice(range(4, n_windows - 2), n_cp, replace=False))
+    cps_all = sorted(rng.choice(range(4, n_windows - 2), n_cp, replace=False))
+    cps = [int(c) for c in cps_all] if drift_mode in ("mixed", "concept_only", "abrupt_only") else []
     cp_info = {}
 
     # Initial informative features and concept coefficients
@@ -61,7 +62,7 @@ def generate_random_drift_stream(
             cp_info[w] = cov_visible
         
         # Harmless drift: slow mean shift on non-informative features every window
-        if drift_mode in ("mixed", "gradual_only"):
+        if drift_mode in ("mixed", "gradual_only", "harmless_only"):
             harmless = np.setdiff1d(np.arange(p), informative)
             mean[harmless] += rng.normal(0, 0.15, len(harmless))
             
