@@ -4,68 +4,46 @@ Uses frozen configuration (configs/frozen.yaml) with seeds 1000-1029.
 Computes paired Wilcoxon signed-rank tests and 5,000 bootstrap CIs.
 Saves raw results and formatted tables for publication.
 """
-import copy
-import hashlib
 import logging
-import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
-import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from driftx.experiment.runner import ExperimentRunner
+from driftx.experiment.runner import (
+    ExperimentRunner,
+    get_git_commit,
+    get_git_dirty,
+    get_frozen_hash,
+)
+from driftx.experiment.load_config import load_frozen
 from scripts.random_streams import generate_random_drift_stream
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("MultiStreamEval")
 
 
-def get_git_commit() -> str:
-    try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, stderr=subprocess.DEVNULL
-        ).decode("utf-8").strip()
-        return commit[:12]
-    except Exception:
-        return "unknown"
-
-
-def get_config_hash(cfg_path: Path) -> str:
-    try:
-        hasher = hashlib.sha256()
-        with open(cfg_path, "rb") as f:
-            hasher.update(f.read())
-        return hasher.hexdigest()[:12]
-    except Exception:
-        return "unknown"
-
-
 def run_multi_stream_eval(
     n_streams: int = 30,
     start_seed: int = 1000,
-    config_path: Path = PROJECT_ROOT / "configs" / "frozen.yaml",
 ):
-    if not config_path.exists():
-        config_path = PROJECT_ROOT / "configs" / "default.yaml"
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        base_config = yaml.safe_load(f)
-
+    base_config = load_frozen()
     git_sha = get_git_commit()
-    cfg_hash = get_config_hash(config_path)
-    logger.info(f"Loaded config from {config_path} (hash={cfg_hash}, git={git_sha})")
+    git_dirty = get_git_dirty()
+    f_hash = get_frozen_hash()
+    logger.info(f"Loaded frozen config (frozen_hash={f_hash}, git={git_sha}, dirty={git_dirty})")
 
     active_policies = base_config.get("policy", {}).get("active_policies", [
         "p0_never", "p1_fixed", "p2_drift_only", "p3_shap_magnitude",
         "p4_shap_rank", "p5_dis_fused", "p6_performance_drop",
-        "p7_weighted_ks", "p8_random_budget", "p9_shap_loss"
+        "p7_weighted_ks", "p8_random_budget", "p9_shap_loss",
+        "p10_adwin", "p11_ddm", "p12_kswin", "p13_page_hinkley"
     ])
 
     rows = []
@@ -75,10 +53,13 @@ def run_multi_stream_eval(
 
     for s_idx, s in enumerate(stream_seeds, 1):
         df, cps = generate_random_drift_stream(seed=s, n_windows=24, n=1500, p=15, drift_mode="mixed")
-        cfg = copy.deepcopy(base_config)
-        cfg["project"]["seed"] = s
-        cfg["project"]["n_seeds"] = 1
-        cfg["policy"]["active_policies"] = active_policies
+        cfg = load_frozen({
+            "project": {"seed": s, "n_seeds": 1},
+            "policy": {"active_policies": active_policies},
+            "mlflow": {"enabled": False},
+            "output": {"save_csv": False, "export_artifacts": False},
+            "model": {"params": {"n_jobs": 1}},
+        })
         runner = ExperimentRunner(cfg)
         res = runner.run_all(df_override=df, output_filename=f"ms_temp_{s}.csv")
         eval_rows = res[res["window_id"] > 0]
@@ -95,8 +76,9 @@ def run_multi_stream_eval(
                 "accuracy": float(mean_acc),
                 "net_retrains": int(net_retrains),
                 "n_changepoints": len(cps),
-                "config_hash": cfg_hash,
+                "frozen_hash": f_hash,
                 "git_commit": git_sha,
+                "git_dirty": git_dirty,
             })
         logger.info(f"Stream {s_idx}/{n_streams} (seed {s}) complete with {len(cps)} CPs.")
 
@@ -132,7 +114,8 @@ def run_multi_stream_eval(
         
         # Paired Wilcoxon
         try:
-            stat, p_val = wilcoxon(diff_acc)
+            res_w = wilcoxon(diff_acc)
+            stat, p_val = float(res_w.statistic), float(res_w.p_value)
         except Exception:
             stat, p_val = float("nan"), float("nan")
 
@@ -146,6 +129,7 @@ def run_multi_stream_eval(
             "Comparator": other,
             "Mean Acc Diff (P5 - Other)": float(diff_acc.mean()),
             "95% Bootstrap CI": f"[{ci_lower:.4f}, {ci_upper:.4f}]",
+            "Wilcoxon stat": float(stat),
             "Wilcoxon p-value": float(p_val),
             "Mean Retrains Diff": float(diff_ret.mean()),
             "P5 Wins Count": int((diff_acc > 0).sum()),
@@ -159,7 +143,7 @@ def run_multi_stream_eval(
     # Format Markdown Report
     report = []
     report.append("# DRIFT-X 30-Stream Rigorous Evaluation Report\n")
-    report.append(f"**Provenance:** Git Commit: `{git_sha}` | Config Hash: `{cfg_hash}`\n")
+    report.append(f"**Provenance:** Git Commit: `{git_sha}` | Dirty: `{git_dirty}` | Frozen Hash: `{f_hash}`\n")
     report.append(f"**Streams:** {n_streams} independent streams (seeds {start_seed}..{start_seed + n_streams - 1})\n")
     report.append(f"**Drift Regime:** Mixed harmless feature shifts + abrupt concept shifts\n\n")
 
@@ -176,7 +160,6 @@ def run_multi_stream_eval(
         f.write("".join(report))
     logger.info(f"Saved full statistical report to {report_path}")
 
-    print("\n" + "".join(report))
     return df_all, df_stats
 
 
