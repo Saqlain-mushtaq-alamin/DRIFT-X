@@ -180,8 +180,8 @@ def run_null_stream_experiment(
     seed_start: int = 101,
 ) -> pd.DataFrame:
     """Run all policies on the null stream using frozen config and report false-positive retrain counts."""
-    config = load_frozen({
-        "project": {"name": f"null_stream_{null_type}", "seed": seed_start, "n_seeds": n_seeds},
+    base_config = load_frozen({
+        "project": {"name": f"null_stream_{null_type}", "seed": seed_start, "n_seeds": 1},
         "data": {
             "dataset": "fraud",
             "timestamp_col": "TransactionDT",
@@ -192,11 +192,13 @@ def run_null_stream_experiment(
         },
         "mlflow": {"enabled": False},
         "output": {"results_dir": str(PROJECT_ROOT / "results")},
+        "model": {"params": {"n_jobs": 1}},
     })
 
-    all_rows = []
-    seeds = [seed_start + i for i in range(n_seeds)]
-    for seed in seeds:
+    from joblib import Parallel, delayed
+    import copy
+
+    def run_one_null_seed(seed):
         df_null = generate_null_stream(
             n_windows=n_windows,
             samples_per_window=1500,
@@ -204,15 +206,20 @@ def run_null_stream_experiment(
             seed=seed,
             null_type=null_type,
         )
-        runner = ExperimentRunner(config)
+        cfg = copy.deepcopy(base_config)
+        cfg["project"]["seed"] = seed
+        cfg["project"]["n_seeds"] = 1
+        runner = ExperimentRunner(cfg)
         seed_results = runner.run_all(
             df_override=df_null,
             output_filename=f"null_stream_{null_type}_seed{seed}.csv",
         )
         seed_results["null_seed"] = seed
         seed_results["null_type"] = null_type
-        all_rows.append(seed_results)
+        return seed_results
 
+    seeds = [seed_start + i for i in range(n_seeds)]
+    all_rows = Parallel(n_jobs=min(n_seeds, 4))(delayed(run_one_null_seed)(s) for s in seeds)
     results = pd.concat(all_rows, ignore_index=True)
 
     out_dir = PROJECT_ROOT / "results"
