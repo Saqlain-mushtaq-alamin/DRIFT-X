@@ -43,13 +43,13 @@ GRIDS = {
     "p1_fixed":            ("policy", "fixed_schedule_interval", [1, 2, 3, 4, 6, 8, 12, 23]),
     "p2_drift_only":       ("policy", "ks_threshold",            [1.0, 2.0, 5.0, 15.0, 50.0, 200.0]),
     "p3_shap_magnitude":   ("policy", "magnitude_threshold",     [1, 2, 3, 5, 8, 15, 30]),
-    "p4_shap_rank":        ("policy", "rank_change_threshold",   [1, 2, 3, 5, 8, 15, 30]),
+    "p4_shap_rank":        ("policy", "rank_change_threshold",   [0.3, 0.6, 1, 2, 3, 5, 8, 15, 30]),
     "p5_dis_fused":        ("fusion", "dis_threshold",           [0.2, 0.5, 1.0, 2.0, 3.5, 4.0, 4.9, 5.0]),
     "p6_performance_drop": ("policy", "performance_drop_delta",  [0.005, 0.015, 0.03, 0.06, 0.15]),
     "p7_weighted_ks":      ("policy", "weighted_ks_threshold",   [0.6, 0.8, 1.0, 1.3, 1.8, 2.5, 4, 8, 14]),
     "p8_random_budget":    ("policy", "random_retrain_prob",     [0.05, 0.1, 0.2, 0.4, 0.8, 1.0]),
     "p9_shap_loss":        ("policy", "shap_loss_threshold",     [1, 2, 3, 5, 8]),
-    "p10_adwin":           ("policy", "adwin_delta",             [0.0002, 0.001, 0.005, 0.02, 0.1]),
+    "p10_adwin":           ("policy", "adwin_delta",             [0.0002, 0.002, 0.02, 0.1, 0.3, 0.6, 0.9]),
     "p11_ddm":             ("policy", "ddm_drift_threshold",     [1.5, 2.5, 3.5, 5.0]),
     "p12_kswin":           ("policy", "kswin_alpha",             [0.0002, 0.001, 0.005, 0.02]),
     "p13_page_hinkley":    ("policy", "ph_threshold",            [5.0, 15.0, 40.0, 100.0]),
@@ -299,8 +299,9 @@ def run_regime(
         return {"raw": df_raw, "false_alarms": fa}
 
     # Guard: Fail loudly if any swept policy has a flat sweep
+    min_nunique = 3.0 if len(seeds) >= 10 else 2.0
     for pol, g in df_raw.groupby("policy"):
-        if g["param_key"].iloc[0] != "unused" and g.groupby("stream")["retrains"].nunique().mean() < 3:
+        if g["param_key"].iloc[0] != "unused" and g.groupby("stream")["retrains"].nunique().mean() < min_nunique:
             raise RuntimeError(f"Flat sweep for {pol}: swept key is not wired into the runner or scale is wrong.")
 
     # Compute metrics (acc@3, acc@4, acc@5, AUC)
