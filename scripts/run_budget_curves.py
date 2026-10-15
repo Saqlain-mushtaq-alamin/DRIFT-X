@@ -1,8 +1,12 @@
 """Matched-Budget Accuracy-vs-Retrain Curves & Hypothesis Testing.
 
-Evaluates policies across random drift streams with parameter sweeps to construct
-empirical accuracy-vs-retrains curves. Evaluates performance at matched budgets (acc@3, acc@4, acc@5),
-AUC of the accuracy-retrain curve, change-point recall/precision, and paired statistical tests with Holm correction.
+Constructs empirical accuracy-vs-retrains curves across drift streams anchored at both ends:
+- Left anchor: (0, P0 accuracy)
+- Right anchor: (N_eval, Always-Retrain accuracy from P1 interval=1)
+
+Evaluates matched-budget accuracy (acc@3, acc@4, acc@5), curve AUC, change-point recall
+decomposed into visible (covariate-assisted) vs invisible (pure concept), change-point precision,
+and paired Wilcoxon tests with Holm-Bonferroni correction and 95% bootstrap CIs.
 """
 import argparse
 import logging
@@ -30,25 +34,44 @@ logger = logging.getLogger("BudgetCurves")
 GRIDS = {
     "p0_never":            ("policy", "unused",                  [0]),
     "p1_fixed":            ("policy", "fixed_schedule_interval", [1, 2, 3, 4, 6, 8, 12, 23]),
-    "p2_drift_only":       ("policy", "ks_threshold",            [3, 5, 10, 20, 30, 50, 100, 200]),
-    "p5_dis_fused":        ("fusion", "dis_threshold",           [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]),
-    "p6_performance_drop": ("policy", "performance_drop_delta",  [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.2]),
-    "p8_random_budget":    ("policy", "random_retrain_prob",     [0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5]),
-    "p10_adwin":           ("policy", "adwin_delta",             [0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05]),
+    "p2_drift_only":       ("policy", "ks_threshold",            [1.0, 2.0, 5.0, 15.0, 50.0, 200.0]),
+    "p3_shap_magnitude":   ("policy", "magnitude_threshold",     [0.005, 0.015, 0.03, 0.06, 0.15]),
+    "p4_shap_rank":        ("policy", "rank_change_threshold",   [0.005, 0.015, 0.035, 0.08, 0.2]),
+    "p5_dis_fused":        ("fusion", "dis_threshold",           [0.2, 0.5, 1.0, 2.0, 3.5, 5.0]),
+    "p6_performance_drop": ("policy", "performance_drop_delta",  [0.005, 0.015, 0.03, 0.06, 0.15]),
+    "p7_weighted_ks":      ("policy", "weighted_ks_threshold",   [0.2, 0.6, 1.5, 3.5, 10.0]),
+    "p8_random_budget":    ("policy", "random_retrain_prob",     [0.05, 0.1, 0.2, 0.4, 0.8, 1.0]),
+    "p10_adwin":           ("policy", "adwin_delta",             [0.0002, 0.001, 0.005, 0.02, 0.1]),
+    "p11_ddm":             ("policy", "ddm_drift_threshold",     [1.5, 2.5, 3.5, 5.0]),
+    "p12_kswin":           ("policy", "kswin_alpha",             [0.0002, 0.001, 0.005, 0.02]),
+    "p13_page_hinkley":    ("policy", "ph_threshold",            [5.0, 15.0, 40.0, 100.0]),
     "p14_oracle":          ("policy", "unused",                  [0]),
+    "p5_stat_only":        ("fusion", "dis_threshold",           [0.2, 0.5, 1.0, 2.0, 3.5, 5.0]),
+    "p5_mag_only":         ("fusion", "dis_threshold",           [0.2, 0.5, 1.0, 2.0, 3.5, 5.0]),
 }
 
 
 def run_one(s: int, mode: str, pol: str, sec: str, key: str, val: Any) -> Dict[str, Any]:
-    df, cps = generate_random_drift_stream(s, drift_mode=mode)
+    df, cps, cp_info = generate_random_drift_stream(s, drift_mode=mode, return_info=True)
+    real_pol = pol
+    extra_fusion = {}
+    if pol == "p5_stat_only":
+        real_pol = "p5_dis_fused"
+        extra_fusion = {"alpha": 1.0, "beta": 0.0, "gamma": 0.0, "gating_mode": "none"}
+    elif pol == "p5_mag_only":
+        real_pol = "p5_dis_fused"
+        extra_fusion = {"alpha": 0.0, "beta": 1.0, "gamma": 0.0, "gating_mode": "none"}
+
     cfg = load_frozen({
         "project": {"seed": s, "n_seeds": 1},
-        "policy": {"active_policies": [pol]},
+        "policy": {"active_policies": [real_pol]},
         "mlflow": {"enabled": False},
         "output": {"save_csv": False, "export_artifacts": False},
         "model": {"params": {"n_jobs": 1}},
     })
-    if pol == "p14_oracle":
+    if extra_fusion:
+        cfg["fusion"].update(extra_fusion)
+    if real_pol == "p14_oracle":
         cfg["policy"]["oracle_cps"] = [int(c) for c in cps]
     elif key != "unused":
         cfg[sec][key] = val
@@ -60,9 +83,13 @@ def run_one(s: int, mode: str, pol: str, sec: str, key: str, val: Any) -> Dict[s
     ev_active = ev[ev["window_id"] > 0]
     retrains = int(ev_active["retrained"].sum())
     acc = float(ev_active["accuracy"].mean())
+    n_eval = len(ev_active)
 
-    # Compute change point scores if change points exist
-    cp_rec, cp_prec = cp_scores(ev, cps, tol=2) if len(cps) > 0 else (np.nan, np.nan)
+    # Compute change point scores decomposed by visibility
+    if len(cps) > 0:
+        rec, prec, rec_vis, rec_invis = cp_scores(ev, cps, tol=2, cp_info=cp_info)
+    else:
+        rec, prec, rec_vis, rec_invis = np.nan, np.nan, np.nan, np.nan
 
     return {
         "stream": s,
@@ -72,47 +99,61 @@ def run_one(s: int, mode: str, pol: str, sec: str, key: str, val: Any) -> Dict[s
         "param_val": val,
         "retrains": retrains,
         "acc": acc,
-        "cp_recall": cp_rec,
-        "cp_precision": cp_prec,
+        "n_eval": n_eval,
+        "cp_recall": rec,
+        "cp_precision": prec,
+        "cp_recall_vis": rec_vis,
+        "cp_recall_invis": rec_invis,
         "n_cps": len(cps),
     }
 
 
-def curve_at(df_sp: pd.DataFrame, p0_acc: float, B: float) -> float:
-    """Interpolate accuracy at retrain budget B anchored at (0, p0_acc)."""
-    c = df_sp.groupby("retrains")["acc"].mean()
+def curve_at(g: pd.DataFrame, p0_acc: float, always_acc: float, n_eval: int, B: float) -> float:
+    """Interpolate accuracy at budget B anchored at (0, p0_acc) and (n_eval, always_acc)."""
+    c = g.groupby("retrains")["acc"].mean()
     c.loc[0] = p0_acc
+    c.loc[n_eval] = always_acc
     c = c.sort_index()
-    return float(np.interp(B, c.index, c.values, left=np.nan, right=np.nan))
+    return float(np.interp(B, c.index, c.values))
 
 
 def compute_metrics(res: pd.DataFrame) -> pd.DataFrame:
-    """Compute matched budget metrics (acc@3, acc@4, acc@5) and curve AUC."""
+    """Compute matched budget metrics (acc@3, acc@4, acc@5) and curve AUC using dual anchors."""
     rows = []
-    for (s, pol), g in res[res["policy"] != "p0_never"].groupby(["stream", "policy"]):
-        p0_sub = res[(res["stream"] == s) & (res["policy"] == "p0_never")]
-        if len(p0_sub) == 0:
+    # Identify per-stream anchors
+    for s, s_group in res.groupby("stream"):
+        p0_sub = s_group[s_group["policy"] == "p0_never"]
+        always_sub = s_group[(s_group["policy"] == "p1_fixed") & (s_group["param_val"] == 1)]
+        if p0_sub.empty or always_sub.empty:
             continue
         p0_acc = p0_sub["acc"].iloc[0]
-        at_budgets = {f"acc@{B}": curve_at(g, p0_acc, B) for B in (3, 4, 5)}
-        grid = [curve_at(g, p0_acc, B) for B in range(1, 11)]
-        valid_grid = [v for v in grid if not np.isnan(v)]
-        auc = float(np.mean(valid_grid)) if len(valid_grid) >= 5 else np.nan
-        
-        # Mean CP recall and precision across operating points
-        mean_recall = g["cp_recall"].dropna().mean()
-        mean_precision = g["cp_precision"].dropna().mean()
+        always_acc = always_sub["acc"].iloc[0]
+        n_eval = s_group["n_eval"].iloc[0]
 
-        rows.append({
-            "stream": s,
-            "policy": pol,
-            **at_budgets,
-            "auc": auc,
-            "mean_cp_recall": mean_recall,
-            "mean_cp_precision": mean_precision,
-            "raw_mean_retrains": g["retrains"].mean(),
-            "raw_mean_acc": g["acc"].mean(),
-        })
+        for pol, g in s_group.groupby("policy"):
+            if pol == "p0_never":
+                continue
+            at_budgets = {f"acc@{B}": curve_at(g, p0_acc, always_acc, n_eval, B) for B in (3, 4, 5)}
+            grid = [curve_at(g, p0_acc, always_acc, n_eval, B) for B in range(1, 11)]
+            auc = float(np.mean(grid))
+
+            mean_recall = g["cp_recall"].dropna().mean()
+            mean_precision = g["cp_precision"].dropna().mean()
+            mean_rec_vis = g["cp_recall_vis"].dropna().mean()
+            mean_rec_invis = g["cp_recall_invis"].dropna().mean()
+
+            rows.append({
+                "stream": s,
+                "policy": pol,
+                **at_budgets,
+                "auc": auc,
+                "mean_cp_recall": mean_recall,
+                "mean_cp_precision": mean_precision,
+                "mean_cp_recall_vis": mean_rec_vis,
+                "mean_cp_recall_invis": mean_rec_invis,
+                "raw_mean_retrains": g["retrains"].mean(),
+                "raw_mean_acc": g["acc"].mean(),
+            })
     return pd.DataFrame(rows)
 
 
@@ -122,7 +163,9 @@ def run_paired_tests(m: pd.DataFrame, metric: str = "auc", ref: str = "p5_dis_fu
     if ref not in piv.columns:
         return pd.DataFrame()
     out = []
-    for other in [c for c in piv.columns if c != ref]:
+    # Drop p14_oracle from comparative tests (used as ceiling marker only)
+    candidates = [c for c in piv.columns if c != ref and c != "p14_oracle"]
+    for other in candidates:
         d = (piv[ref] - piv[other]).dropna()
         if len(d) < 5:
             continue
@@ -164,7 +207,7 @@ def run_regime(mode: str = "mixed", seeds: range = range(1000, 1030), n_jobs: in
         for v in g[2]
     ]
     logger.info(f"Total jobs to execute: {len(jobs)} (n_jobs={n_jobs})")
-    results = Parallel(n_jobs=n_jobs)(delayed(run_one)(*j) for j in jobs)
+    results = Parallel(n_jobs=n_jobs, verbose=10)(delayed(run_one)(*j) for j in jobs)
     df_raw = pd.DataFrame(results)
 
     out_dir = PROJECT_ROOT / "results"
@@ -187,14 +230,17 @@ def run_regime(mode: str = "mixed", seeds: range = range(1000, 1030), n_jobs: in
     df_tests.to_csv(tests_path, index=False)
     logger.info(f"Paired test results saved to {tests_path}")
 
-    # Print summary tables
+    # Print summary table with guaranteed n=30 per cell
     summary = df_metrics.groupby("policy").agg(
+        n_streams=("stream", "count"),
         acc_at_3=("acc@3", "mean"),
         acc_at_4=("acc@4", "mean"),
         acc_at_5=("acc@5", "mean"),
         curve_auc=("auc", "mean"),
         cp_recall=("mean_cp_recall", "mean"),
         cp_precision=("mean_cp_precision", "mean"),
+        cp_recall_vis=("mean_cp_recall_vis", "mean"),
+        cp_recall_invis=("mean_cp_recall_invis", "mean"),
     ).reset_index().sort_values("curve_auc", ascending=False)
     logger.info(f"\n--- Regime {mode.upper()} Summary ---")
     logger.info(summary.to_string(index=False))
