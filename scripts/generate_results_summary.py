@@ -4,6 +4,7 @@ Inspects all result files, verifies provenance (git commit and config hash),
 flags stale runs, and generates planning/results_summary.md.
 """
 from pathlib import Path
+import hashlib
 import subprocess
 import logging
 from typing import Dict, Any, List
@@ -15,7 +16,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ResultsSummary")
 
-FROZEN_HASH = "cc7fdbdcbb4b"
+
+def frozen_hash() -> str:
+    path = PROJECT_ROOT / "configs" / "frozen.yaml"
+    if path.exists():
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    return "unknown"
+
+
+FROZEN_HASH = frozen_hash()
 
 try:
     CURRENT_COMMIT = subprocess.check_output(
@@ -26,21 +35,61 @@ except Exception:
 
 
 def check_file_provenance(path: Path) -> Dict[str, Any]:
-    """Check whether a CSV file matches current commit."""
+    """Check whether a CSV file matches current commit and frozen config."""
     if not path.exists():
         return {"exists": False, "status": "MISSING", "hash": "N/A", "commit": "N/A"}
     try:
         df_head = pd.read_csv(path, nrows=50)
-        h_vals = df_head["config_hash"].dropna().unique() if "config_hash" in df_head.columns else []
+        h_vals = df_head["frozen_hash"].dropna().unique() if "frozen_hash" in df_head.columns else (
+            df_head["config_hash"].dropna().unique() if "config_hash" in df_head.columns else []
+        )
         c_vals = df_head["git_commit"].dropna().unique() if "git_commit" in df_head.columns else []
         h = str(h_vals[0]) if len(h_vals) > 0 else "none"
         c = str(c_vals[0]) if len(c_vals) > 0 else "none"
-        # Current if commit matches current commit, or if budget curve generated in this run
-        is_current = (c.startswith(CURRENT_COMMIT) or "budget_curves_mixed" in path.name)
-        status = "CURRENT" if is_current else "STALE (Pre-Fix)"
+
+        fh = df_head["frozen_hash"].dropna().unique() if "frozen_hash" in df_head.columns else []
+        dirty = df_head["git_dirty"].dropna().unique() if "git_dirty" in df_head.columns else []
+
+        ok = (
+            c.startswith(CURRENT_COMMIT)
+            and len(fh) > 0
+            and str(fh[0]) == FROZEN_HASH
+            and len(dirty) > 0
+            and not bool(dirty[0])
+        )
+        status = "CURRENT" if ok else "UNVERIFIED"
         return {"exists": True, "status": status, "hash": h, "commit": c}
     except Exception as e:
         return {"exists": True, "status": "ERROR", "hash": str(e), "commit": "error"}
+
+
+def findings(df_bt: pd.DataFrame, df_bm: pd.DataFrame) -> str:
+    """Generate Section 9 findings dynamically from statistical tests and metrics data."""
+    out = []
+    if df_bt is not None and not df_bt.empty:
+        for other in ["p2_drift_only", "p7_weighted_ks", "p5_mag_only", "p3_shap_magnitude"]:
+            r = df_bt[(df_bt.vs == other) & (df_bt.metric == "auc")]
+            if r.empty:
+                continue
+            r = r.iloc[0]
+            verdict = ("no significant difference" if r.p_holm >= 0.05
+                       else ("P5 better" if r.diff_mean > 0 else f"{other} better"))
+            out.append(f"- P5 vs {other}, AUC: {r.diff_mean:+.4f} "
+                       f"[{r.ci_95_lo:+.4f}, {r.ci_95_hi:+.4f}], Holm p={r.p_holm:.3f}, n={int(r.n)}: {verdict}.")
+    if df_bm is not None and not df_bm.empty:
+        p5_rows = df_bm[df_bm.policy == "p5_dis_fused"]
+        if not p5_rows.empty:
+            p5 = p5_rows.iloc[0]
+            rec = getattr(p5, "cp_recall", getattr(p5, "mean_cp_recall", 0.0))
+            prec = getattr(p5, "cp_precision", getattr(p5, "mean_cp_precision", 0.0))
+            ch_rec = getattr(p5, "chance_recall", np.nan)
+            ch_prec = getattr(p5, "chance_precision", np.nan)
+            if pd.notna(ch_rec) and pd.notna(ch_prec):
+                chance_str = f" (chance {ch_rec:.2f}/{ch_prec:.2f})"
+            else:
+                chance_str = ""
+            out.append(f"- P5 recall/precision at ~4 retrains: {rec:.2f}/{prec:.2f}{chance_str}.")
+    return "\n".join(out) if out else "- No test or metrics data available yet."
 
 
 def build_summary() -> str:
@@ -185,28 +234,50 @@ def build_summary() -> str:
     # 8. Matched-Budget Multi-Stream Evaluation (30 Streams, seeds 1000-1029)
     p_bm = PROJECT_ROOT / "results" / "budget_curves_mixed_metrics.csv"
     p_bt = PROJECT_ROOT / "results" / "budget_curves_mixed_tests.csv"
+    df_bm = pd.DataFrame()
+    df_bt = pd.DataFrame()
+    df_bm_mean = pd.DataFrame()
+
     if p_bm.exists() and p_bm.stat().st_size > 0:
         try:
             df_bm = pd.read_csv(p_bm)
-            content.append("## 8. Matched-Budget Multi-Stream Benchmark (30 Streams, seeds 1000-1029)\n")
+            content.append("## 8. Matched-Budget Multi-Stream Benchmark\n")
             content.append(
                 "Every curve is dual-anchored at (0, P0 accuracy) and (N_eval, always-retrain accuracy), "
-                "guaranteeing identical evaluation across all streams without dropped instances (n=30 everywhere).\n\n"
+                "guaranteeing identical evaluation across all streams without dropped instances.\n\n"
             )
-            s_bm = df_bm.groupby("policy").agg(
-                n_streams=("stream", "count"),
-                acc_at_3=("acc@3", "mean"),
-                acc_at_4=("acc@4", "mean"),
-                acc_at_5=("acc@5", "mean"),
-                curve_auc=("auc", "mean"),
-                cp_recall=("mean_cp_recall", "mean"),
-                cp_precision=("mean_cp_precision", "mean"),
-                cp_recall_vis=("mean_cp_recall_vis", "mean"),
-                cp_recall_invis=("mean_cp_recall_invis", "mean"),
-            ).reset_index().sort_values("curve_auc", ascending=False).round(4)
-            content.append("### Matched-Budget Performance Summary (n=30 Guaranteed)\n")
+            agg_dict = {
+                "n_streams": ("stream", "count"),
+                "acc_at_3": ("acc@3", "mean"),
+                "acc_at_4": ("acc@4", "mean"),
+                "acc_at_5": ("acc@5", "mean"),
+                "curve_auc": ("auc", "mean"),
+            }
+            if "near@3" in df_bm.columns:
+                agg_dict["near_3"] = ("near@3", "mean")
+            if "near@4" in df_bm.columns:
+                agg_dict["near_4"] = ("near@4", "mean")
+            if "near@5" in df_bm.columns:
+                agg_dict["near_5"] = ("near@5", "mean")
+
+            # Check for cp_recall or mean_cp_recall
+            rec_col = "cp_recall" if "cp_recall" in df_bm.columns else ("mean_cp_recall" if "mean_cp_recall" in df_bm.columns else None)
+            prec_col = "cp_precision" if "cp_precision" in df_bm.columns else ("mean_cp_precision" if "mean_cp_precision" in df_bm.columns else None)
+            if rec_col:
+                agg_dict["cp_recall"] = (rec_col, "mean")
+            if prec_col:
+                agg_dict["cp_precision"] = (prec_col, "mean")
+            if "chance_recall" in df_bm.columns:
+                agg_dict["chance_recall"] = ("chance_recall", "mean")
+            if "chance_precision" in df_bm.columns:
+                agg_dict["chance_precision"] = ("chance_precision", "mean")
+
+            s_bm = df_bm.groupby("policy").agg(**agg_dict).reset_index().sort_values("curve_auc", ascending=False).round(4)
+            content.append("### Matched-Budget Performance Summary\n")
             content.append(s_bm.to_markdown(index=False))
             content.append("\n\n")
+
+            df_bm_mean = df_bm.groupby("policy").mean(numeric_only=True).reset_index()
         except Exception as e:
             logger.warning(f"Failed to read {p_bm}: {e}")
 
@@ -220,25 +291,19 @@ def build_summary() -> str:
         except Exception as e:
             logger.warning(f"Failed to read {p_bt}: {e}")
 
-    # Scientific Conclusions & Mandatory Disclosures
-    content.append("## 9. Scientific Findings & Explicit Disclosures\n")
-    content.append("""
-1. **P5 vs P2 Matched Budget (Null Result on AUC):**
-   - At matched retrain budget, P5 (DIS-Fused) and P2 (KS-only) are statistically indistinguishable in curve AUC (Holm p > 0.05).
-   - P5 does NOT dominate P2 on accuracy at matched budget.
+    # 9. Scientific Findings & Explicit Disclosures (dynamically generated)
+    content.append("## 9. Scientific Findings & Explicit Disclosures\n\n")
+    content.append("### Empirical Findings (Data-Derived)\n")
+    content.append(findings(df_bt, df_bm_mean))
+    content.append("\n\n")
 
-2. **Selectivity & Change-Point Precision Advantage:**
-   - P5 achieves significantly higher change-point precision than P2 (~0.61 vs ~0.45).
-   - P5 selectively triggers on harmful drift while filtering out harmless covariate shifts.
-
-3. **Label-Free Visibility Bound:**
-   - On mixed streams where 50% of change points are pure concept shifts without covariate movement on informative features, NO label-free detector (P2, P3, P4, P5, P7) can observe invisible shifts (`cp_recall_invis ≈ 0.0`).
-   - The label-free recall ceiling reflects generator design and information bounds, not explainability failure.
-
-4. **Label Setting & Resource Cost Disclosures:**
-   - **Label Timing:** Error-based detectors (P6, ADWIN, DDM, Page-Hinkley) require ground truth labels immediately at window end to compute error rates. Label-free policies (P0, P1, P2, P3, P4, P5, P7, P8) make trigger decisions using unlabeled X alone.
-   - **Compute Overhead:** P5 computes TreeExplainer on every window (~0.08s latency per window), whereas P2 computes KS statistics in <0.001s.
-""")
+    content.append("### Label Setting & Supervision Disclosures\n")
+    content.append(
+        "- **Label-Free Policies (P0, P1, P2, P3, P4, P5, P7, P8, P12 KSWIN):** "
+        "Evaluate drift and make retraining decisions entirely on unlabeled features X (or model predicted probabilities for KSWIN), requiring zero immediate ground-truth labels.\n"
+        "- **Label-Using Policies (P6, P9, P10 ADWIN, P11 DDM, P13 Page-Hinkley):** "
+        "Require immediate ground-truth labels y at window end. P6, ADWIN, DDM, and Page-Hinkley monitor classification errors, and P9 computes SHAP values of log loss with true labels.\n"
+    )
 
     out_file = PROJECT_ROOT / "planning" / "results_summary.md"
     out_file.parent.mkdir(parents=True, exist_ok=True)
