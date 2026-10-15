@@ -60,6 +60,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from driftx.experiment.runner import ExperimentRunner
+from driftx.experiment.load_config import load_frozen
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -264,40 +265,8 @@ def run_changepoint_experiment(
             shift — only decision boundary changes).  This exposes KS-only (P2)
             as blind to concept drift when feature distributions are stable.
     """
-    config = {
+    config = load_frozen({
         "project": {"name": "changepoint_control", "seed": 42, "n_seeds": 1},
-        "data": {
-            "dataset": "fraud",
-            "timestamp_col": "TransactionDT",
-            "target_col": "isFraud",
-            "window_size": "monthly",
-            "min_window_samples": 500,
-            "data_source_type": "synthetic_controlled",
-        },
-        "model": {
-            "type": "xgboost",
-            "params": {"n_estimators": 100, "max_depth": 5, "eval_metric": "logloss"},
-        },
-        "detection": {"statistical_method": "ks", "ks_alpha": 0.05},
-        "explainability": {
-            "shap_method": "tree",
-            "max_shap_samples": 200,
-            "magnitude_threshold": 0.030,
-            "rank_change_threshold": 0.035,
-        },
-        "fusion": {
-            "alpha": 0.4, "beta": 0.4, "gamma": 0.2,
-            "use_calibrated_zscore": True,
-            "clip_max": 5.0,
-            "gating_mode": "two_channel",
-            "gating_channel_threshold": 2.5,
-            "gating_min_channels": 2,
-            "threshold_mode": "fixed",
-            "fixed_threshold": 3.0,
-            "warmup_threshold": float("inf"),
-            "adaptive_lookback": 10,
-            "adaptive_lambda": 1.92,
-        },
         "policy": {
             "active_policies": [
                 "p0_never", "p1_fixed", "p2_drift_only",
@@ -306,9 +275,8 @@ def run_changepoint_experiment(
             ],
             "fixed_schedule_interval": 3,
         },
-        "evaluation": {"metrics": ["accuracy"], "cost_metric": "retrain_count"},
         "output": {"results_dir": str(PROJECT_ROOT / "results")},
-    }
+    })
 
     n_pre = 5
     n_total = n_pre + 2 * n_post_cp
