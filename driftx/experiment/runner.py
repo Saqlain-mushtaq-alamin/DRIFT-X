@@ -283,6 +283,14 @@ class ExperimentRunner:
             
             # Compute initial SHAP profile and reference feature weights if policy needs SHAP
             needs_shap = getattr(policy, "needs_shap", False)
+            fusion_cfg = self.config.get("fusion", {})
+            if (
+                policy.policy_id == "p5_dis_fused"
+                and fusion_cfg.get("beta", 0.4) == 0.0
+                and fusion_cfg.get("gamma", 0.2) == 0.0
+                and fusion_cfg.get("gating_mode", "two_channel") in ("none", "")
+            ):
+                needs_shap = False
             if needs_shap:
                 shap_result = shap_computer.compute(
                     trainer.get_model(), windows[0].X
@@ -329,6 +337,7 @@ class ExperimentRunner:
                 "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.92),
                 "lookback_k": self.config["fusion"].get("adaptive_lookback", 10),
                 "config_hash": config_hash,
+                "git_commit": get_git_commit(),
                 "run_timestamp": run_timestamp,
                 # Provenance: is this dataset real or synthetic?
                 "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
@@ -519,6 +528,7 @@ class ExperimentRunner:
                     "adaptive_lambda": self.config["fusion"].get("adaptive_lambda", 1.92),
                     "lookback_k": self.config["fusion"].get("adaptive_lookback", 10),
                     "config_hash": config_hash,
+                    "git_commit": get_git_commit(),
                     "run_timestamp": run_timestamp,
                     # Provenance: is this dataset real or synthetic?
                     "data_source": self.config.get("data", {}).get("data_source_type", "synthetic"),
