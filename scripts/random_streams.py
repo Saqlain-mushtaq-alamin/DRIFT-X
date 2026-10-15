@@ -17,7 +17,8 @@ def generate_random_drift_stream(
     n: int = 1500,
     p: int = 15,
     drift_mode: str = "mixed",
-) -> Tuple[pd.DataFrame, List[int]]:
+    return_info: bool = False,
+):
     """
     Generate a non-stationary stream with controlled harmful and harmless drift.
 
@@ -27,22 +28,24 @@ def generate_random_drift_stream(
         n: Number of samples per window.
         p: Total number of features.
         drift_mode: One of 'mixed', 'gradual_only', 'concept_only', 'abrupt_only'.
+        return_info: If True, returns (df, cps, cp_info) where cp_info maps cp -> is_covariate_visible.
 
     Returns:
-        (df, cps): Tuple of concatenated DataFrame and list of ground-truth change-point window indices.
+        (df, cps) or (df, cps, cp_info)
     """
     rng = np.random.RandomState(seed)
-    
+
     # Random change points (not aligned with any fixed retraining schedule)
     n_cp = rng.randint(2, 5)
     cps = sorted(rng.choice(range(4, n_windows - 2), n_cp, replace=False))
-    
+    cp_info = {}
+
     # Initial informative features and concept coefficients
     informative = rng.choice(p, 4, replace=False)
     coef = np.zeros(p)
     coef[informative] = rng.uniform(0.8, 2.0, 4) * rng.choice([-1, 1], 4)
     mean = np.zeros(p)
-    
+
     rows = []
     for w in range(n_windows):
         # Harmful concept change at a change point: new coefficients
@@ -50,9 +53,12 @@ def generate_random_drift_stream(
             informative = rng.choice(p, 4, replace=False)
             coef = np.zeros(p)
             coef[informative] = rng.uniform(0.8, 2.0, 4) * rng.choice([-1, 1], 4)
-            # Sometimes abrupt covariate shift too (unless pure concept drift)
+            # Sometimes abrupt covariate shift on informative features (visible to KS/SHAP on X)
+            cov_visible = False
             if drift_mode != "concept_only" and rng.rand() < 0.5:
                 mean[informative] += rng.uniform(-1.5, 1.5, 4)
+                cov_visible = True
+            cp_info[w] = cov_visible
         
         # Harmless drift: slow mean shift on non-informative features every window
         if drift_mode in ("mixed", "gradual_only"):
@@ -79,6 +85,8 @@ def generate_random_drift_stream(
         rows.append(d)
         
     df = pd.concat(rows, ignore_index=True)
+    if return_info:
+        return df, cps, cp_info
     return df, cps
 
 
