@@ -312,11 +312,12 @@ def run_regime(
         logger.info(f"False alarms table saved to {fa_path} and {tagged_fa_path}")
         return {"raw": df_raw, "false_alarms": fa}
 
-    # Guard: Fail loudly if any swept policy has a flat sweep
-    min_nunique = 2.0
-    for pol, g in df_raw.groupby("policy"):
-        if g["param_key"].iloc[0] != "unused" and g.groupby("stream")["retrains"].nunique().mean() < min_nunique:
-            raise RuntimeError(f"Flat sweep for {pol}: swept key is not wired into the runner or scale is wrong.")
+    # Guard: Fail loudly if any swept policy has a flat sweep (except concept_only where covariate features are stationary)
+    if mode != "concept_only":
+        min_nunique = 2.0
+        for pol, g in df_raw.groupby("policy"):
+            if g["param_key"].iloc[0] != "unused" and g.groupby("stream")["retrains"].nunique().mean() < min_nunique:
+                raise RuntimeError(f"Flat sweep for {pol}: swept key is not wired into the runner or scale is wrong.")
 
     # Compute metrics (acc@3, acc@4, acc@5, AUC)
     df_metrics = compute_metrics(df_raw)
