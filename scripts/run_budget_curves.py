@@ -70,13 +70,14 @@ def geo(a: float, b: float, n: int) -> List[float]:
 
 Z_STAT = geo(0.5, 1000, 14)   # unclipped calibrated KS z (max possible is roughly 380)
 Z_SHAP = geo(0.5, 300, 12)
+Z_RANK = geo(0.1, 6000, 14)   # calibrated rank-change z reaches ~4000 on concept shifts
 
 GRIDS: Dict[str, Tuple[str, str, List[Any]]] = {
     "p0_never":            ("policy", "unused",                  [0]),
     "p1_fixed":            ("policy", "fixed_schedule_interval", [1, 2, 3, 4, 5, 6, 8, 10, 12, 23]),
     "p2_drift_only":       ("policy", "ks_threshold",            Z_STAT),
     "p3_shap_magnitude":   ("policy", "magnitude_threshold",     Z_SHAP),
-    "p4_shap_rank":        ("policy", "rank_change_threshold",   Z_SHAP),
+    "p4_shap_rank":        ("policy", "rank_change_threshold",   Z_RANK),
     "p5_dis_fused":        ("fusion", "dis_threshold",           [0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 4.9, 5.0]),
     "p6_performance_drop": ("policy", "performance_drop_delta",  [0.002, 0.005, 0.01, 0.02, 0.03, 0.045, 0.06, 0.09, 0.12, 0.2, 0.4]),
     "p7_weighted_ks":      ("policy", "weighted_ks_threshold",   geo(0.4, 25, 12)),
