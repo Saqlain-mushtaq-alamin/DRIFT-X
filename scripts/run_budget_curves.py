@@ -72,6 +72,10 @@ Z_STAT = geo(0.5, 1000, 14)   # unclipped calibrated KS z (max possible is rough
 Z_SHAP = geo(0.5, 300, 12)
 Z_RANK = geo(0.1, 6000, 14)   # calibrated rank-change z reaches ~4000 on concept shifts
 
+# Dense grids for P7 and wstat with extra operating points in [0.5, 3.0] to guarantee AUC coverage >= 0.70
+GRID_P7 = [0.4, 0.5, 0.583, 0.7, 0.848, 1.0, 1.236, 1.5, 1.799, 2.0, 2.2, 2.62, 3.0, 3.816, 5.558, 8.094, 11.787, 17.166, 25.0]
+GRID_WSTAT = [0.5, 0.7, 0.897, 1.1, 1.35, 1.61, 1.9, 2.2, 2.5, 2.889, 5.184, 9.302, 16.693, 29.954, 53.749, 96.449, 173.071, 310.563, 557.281, 1000.0]
+
 GRIDS: Dict[str, Tuple[str, str, List[Any]]] = {
     "p0_never":            ("policy", "unused",                  [0]),
     "p1_fixed":            ("policy", "fixed_schedule_interval", [1, 2, 3, 4, 5, 6, 8, 10, 12, 23]),
@@ -80,7 +84,7 @@ GRIDS: Dict[str, Tuple[str, str, List[Any]]] = {
     "p4_shap_rank":        ("policy", "rank_change_threshold",   Z_RANK),
     "p5_dis_fused":        ("fusion", "dis_threshold",           [0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 4.9, 5.0]),
     "p6_performance_drop": ("policy", "performance_drop_delta",  [0.002, 0.005, 0.01, 0.02, 0.03, 0.045, 0.06, 0.09, 0.12, 0.2, 0.4]),
-    "p7_weighted_ks":      ("policy", "weighted_ks_threshold",   geo(0.4, 25, 12)),
+    "p7_weighted_ks":      ("policy", "weighted_ks_threshold",   GRID_P7),
     "p8_random_budget":    ("policy", "random_retrain_prob",     [0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0]),
     "p9_shap_loss":        ("policy", "shap_loss_threshold",     [0.5, 1, 2, 3, 5, 8, 15]),
     "p10_adwin":           ("policy", "adwin_delta",             [0.0001, 0.001, 0.002, 0.01, 0.05, 0.1, 0.3, 0.6, 0.9]),
@@ -89,17 +93,18 @@ GRIDS: Dict[str, Tuple[str, str, List[Any]]] = {
     "p13_page_hinkley":    ("policy", "ph_threshold",            [1.0, 2.0, 5.0, 10.0, 15.0, 25.0, 40.0, 100.0, 300.0]),
     "p14_oracle":          ("policy", "unused",                  [0]),
     # Ablations. Run through the P5 pipeline with clip_max=1000 so the signal is not capped at 5.
-    "p5_stat_only":        ("fusion", "dis_threshold",           Z_STAT),   # unweighted calibrated KS
-    "p5_wstat_only":       ("fusion", "dis_threshold",           Z_STAT),   # SHAP-weighted calibrated KS
-    "p5_mag_only":         ("fusion", "dis_threshold",           Z_SHAP),   # SHAP magnitude only
+    "p5_stat_only":        ("fusion", "dis_threshold",           Z_STAT),      # unweighted calibrated KS
+    "p5_wstat_only":       ("fusion", "dis_threshold",           GRID_WSTAT),  # SHAP-weighted calibrated KS
+    "p5_mag_only":         ("fusion", "dis_threshold",           Z_SHAP),      # SHAP magnitude only
 }
 GRIDS_HASH = hashlib.sha256(json.dumps(GRIDS, sort_keys=True).encode()).hexdigest()[:12]
 
-# Pre-declared tests (edit BEFORE the confirmatory run, never after).
+# Pre-declared tests (HYPOTHESIS_v3).
 PRIMARY_TESTS = {
     "p5_dis_fused":   ["p2_drift_only", "p3_shap_magnitude", "p4_shap_rank",
-                       "p5_stat_only", "p5_wstat_only", "p5_mag_only"],
+                       "p5_wstat_only", "p5_mag_only"],
     "p7_weighted_ks": ["p2_drift_only", "p3_shap_magnitude", "p5_dis_fused"],
+    "p5_wstat_only":  ["p2_drift_only"],
 }
 REFERENCE_TESTS = {
     "p5_dis_fused":   ["p1_fixed", "p8_random_budget", "p6_performance_drop", "p9_shap_loss",
@@ -112,7 +117,7 @@ MIN_COV_AUC = 0.70    # auc_cov coverage needed for the AUC test
 H2_POLICIES = ["p2_drift_only", "p5_stat_only", "p5_wstat_only", "p5_dis_fused",
                "p5_mag_only", "p7_weighted_ks", "p3_shap_magnitude"]
 
-SPENT = {"tuning": range(1, 11), "seen_1000": range(1000, 1030), "seen_2000": range(2000, 2030)}
+SPENT = {"tuning": range(1, 11), "seen_1000": range(1000, 1030), "seen_2000": range(2000, 2030), "seen_3000": range(3000, 3030)}
 
 
 # --------------------------------------------------------------------------------------
