@@ -43,7 +43,7 @@ def run_single_eval(s, pol, gating_mode, gating_thresh, dis_thresh, p2_thresh=20
         cfg["policy"]["fixed_threshold"] = p2_thresh
 
     runner = ExperimentRunner(cfg)
-    res = runner.run_all(df_override=df)
+    res = runner.run_all(df_override=df, output_filename=f"tune_temp_{s}.csv")
     eval_rows = res[res["window_id"] > 0]
     retrains = int(eval_rows["retrained"].sum())
     acc = float(eval_rows["accuracy"].mean())
