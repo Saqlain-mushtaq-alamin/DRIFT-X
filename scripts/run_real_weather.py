@@ -103,7 +103,7 @@ def main():
         sweep_jobs.append(("p5_wstat_only", "fusion", "dis_threshold", v))
 
     logger.info(f"Running budget curve sweeps ({len(sweep_jobs)} configurations) on Weather...")
-    sweep_results = Parallel(n_jobs=4, verbose=5)(delayed(run_one_weather)(*j) for j in sweep_jobs)
+    sweep_results = Parallel(n_jobs=10, verbose=5)(delayed(run_one_weather)(*j) for j in sweep_jobs)
     df_sweep = pd.DataFrame(sweep_results)
     df_sweep.to_csv(out_dir / "real_weather_budget_curves_raw.csv", index=False)
 
