@@ -173,7 +173,7 @@ def run_one(s: int, mode: str, pol: str, sec: str, key: str, val: Any) -> Dict[s
         if sec == "fusion" and key == "dis_threshold":
             cfg["fusion"]["fixed_threshold"] = val
 
-    ev = ExperimentRunner(cfg).run_all(df_override=df)
+    ev = ExperimentRunner(cfg).run_all(df_override=df, output_filename="temp_budget_run.csv")
     ev_active = ev[ev["window_id"] > 0]
 
     if len(cps) > 0:
@@ -278,9 +278,10 @@ def paired_test(piv: pd.DataFrame, ref: str, other: str, metric: str) -> Dict[st
 
 
 def run_family(m: pd.DataFrame, metric: str, family: str,
-               spec: Dict[str, List[str]]) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+               spec: Dict[str, List[str]], min_cov: float = None) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
     piv = m.pivot(index="stream", columns="policy", values=metric)
-    min_cov = MIN_COV_AUC if metric == "auc" else MIN_COV_ACC4
+    if min_cov is None:
+        min_cov = MIN_COV_AUC if metric == "auc" else MIN_COV_ACC4
     out, dropped = [], []
     for ref, others in spec.items():
         for other in others:
