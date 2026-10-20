@@ -1,7 +1,7 @@
 """DRIFT-X Comprehensive Results Summary Generator.
 
-Inspects all result files, verifies provenance (git commit and config hash),
-flags stale runs, and generates planning/results_summary.md.
+Inspects result files, verifies provenance (git commit and config hash),
+flags stale runs, and generates planning/results_summary.md dynamically.
 """
 from pathlib import Path
 import hashlib
@@ -34,12 +34,31 @@ except Exception:
     CURRENT_COMMIT = "unknown"
 
 
+def code_unchanged_since(c: str) -> bool:
+    if not c or c in ("none", "unknown", "error", "N/A"):
+        return False
+    return subprocess.run(
+        ["git", "diff", "--quiet", c, "HEAD", "--", "driftx", "scripts", "configs"],
+        cwd=PROJECT_ROOT
+    ).returncode == 0
+
+
 def check_file_provenance(path: Path) -> Dict[str, Any]:
     """Check whether a CSV file matches current commit and frozen config."""
     if not path.exists():
         return {"exists": False, "status": "MISSING", "hash": "N/A", "commit": "N/A"}
     try:
-        df_head = pd.read_csv(path, nrows=50)
+        read_path = path
+        if path.name.endswith("_summary.csv"):
+            candidate = path.parent / (path.name[:-12] + "_raw.csv")
+            if candidate.exists():
+                read_path = candidate
+        elif path.name.endswith("_metrics.csv"):
+            candidate = path.parent / (path.name[:-12] + "_raw.csv")
+            if candidate.exists():
+                read_path = candidate
+
+        df_head = pd.read_csv(read_path, nrows=50)
         h_vals = df_head["frozen_hash"].dropna().unique() if "frozen_hash" in df_head.columns else (
             df_head["config_hash"].dropna().unique() if "config_hash" in df_head.columns else []
         )
@@ -50,21 +69,10 @@ def check_file_provenance(path: Path) -> Dict[str, Any]:
         fh = df_head["frozen_hash"].dropna().unique() if "frozen_hash" in df_head.columns else []
         dirty = df_head["git_dirty"].dropna().unique() if "git_dirty" in df_head.columns else []
 
-        # Check if commit is clean and matches current tree or is an ancestor in repo
         commit_valid = False
         if c != "none":
-            if c.startswith(CURRENT_COMMIT) or CURRENT_COMMIT.startswith(c):
+            if c.startswith(CURRENT_COMMIT) or CURRENT_COMMIT.startswith(c) or code_unchanged_since(c):
                 commit_valid = True
-            else:
-                try:
-                    res = subprocess.run(
-                        ["git", "merge-base", "--is-ancestor", c, "HEAD"],
-                        cwd=PROJECT_ROOT,
-                        capture_output=True,
-                    )
-                    commit_valid = (res.returncode == 0)
-                except Exception:
-                    commit_valid = False
 
         ok = (
             commit_valid
@@ -79,45 +87,20 @@ def check_file_provenance(path: Path) -> Dict[str, Any]:
         return {"exists": True, "status": "ERROR", "hash": str(e), "commit": "error"}
 
 
-def findings(df_bt: pd.DataFrame, df_bm: pd.DataFrame, df_dec_t: pd.DataFrame = None, df_dec_m: pd.DataFrame = None) -> str:
-    """Generate Section 9 findings dynamically from statistical tests and metrics data."""
-    out = []
-
-    # Decoupled Confirmatory Findings
-    if df_dec_m is not None and not df_dec_m.empty:
-        out.append("#### Decoupled Regime Confirmatory Results (HYPOTHESIS_v3, Seeds 4000–4029)")
-        out.append("- **Artifact Resolution Confirmed**: When harmless drift is decoupled to disjoint features (pool 6–14) and harmful concept drift to pool 0–5, recall on pure concept shifts ('invisible' CPs) drops from 93%–99% down to baseline chance levels (P7: 0.45, wstat: 0.36 vs chance 0.43).")
-        p2_auc = df_dec_m[df_dec_m.policy == "p2_drift_only"]["auc"].mean() if "p2_drift_only" in df_dec_m.policy.values else np.nan
-        p7_auc = df_dec_m[df_dec_m.policy == "p7_weighted_ks"]["auc"].mean() if "p7_weighted_ks" in df_dec_m.policy.values else np.nan
-        p5_auc = df_dec_m[df_dec_m.policy == "p5_dis_fused"]["auc"].mean() if "p5_dis_fused" in df_dec_m.policy.values else np.nan
-        out.append(f"- **Matched-Budget Efficiency**: In decoupled streams, curve AUC differences between P7 and P2 are null (P7: {p7_auc:.4f} vs P2: {p2_auc:.4f}, mean diff: +0.0005 [-0.0078, +0.0089], Wilcoxon p=0.685). Neither P7 nor wstat exhibits statistically significant superiority over unweighted calibrated KS (P2).")
-        out.append(f"- **DIS Fusion (P5)**: P5 achieves AUC {p5_auc:.4f} and acc@4 0.7183, maintaining parity with statistical testing (P5 vs P2 acc@4 diff: +0.0116 [-0.0015, +0.0258], p=0.084).")
-        out.append("")
-
-    # Real-Stream Generalization Findings
-    p_wea = PROJECT_ROOT / "results" / "real_weather_budget_curves_summary.csv"
-    if p_wea.exists():
-        df_wea = pd.read_csv(p_wea)
-        out.append("#### Real Stream Generalization (NOAA Weather vs ELEC2)")
-        p2_w = df_wea[df_wea.policy == "p2_drift_only"]["auc"].iloc[0] if "p2_drift_only" in df_wea.policy.values else np.nan
-        p7_w = df_wea[df_wea.policy == "p7_weighted_ks"]["auc"].iloc[0] if "p7_weighted_ks" in df_wea.policy.values else np.nan
-        p5_w = df_wea[df_wea.policy == "p5_dis_fused"]["auc"].iloc[0] if "p5_dis_fused" in df_wea.policy.values else np.nan
-        out.append(f"- **Generalization Outcome**: On the continuous-feature NOAA Weather real stream (18,159 observations, 8 features), unweighted statistical drift testing (P2 AUC: {p2_w:.4f}) achieves slightly higher accuracy than importance-weighted KS (P7 AUC: {p7_w:.4f}) and DIS fusion (P5 AUC: {p5_w:.4f}) across matched budgets. The weighted-KS advantage does not generalize to organic real-world drift.")
-        out.append("")
-
-    # Original Coupled Stream Findings
-    if df_bt is not None and not df_bt.empty:
-        out.append("#### Coupled Benchmark Reference (Legacy Generator, Seeds 1000–1029 / 3000–3029)")
-        for other in ["p2_drift_only", "p7_weighted_ks", "p5_mag_only", "p3_shap_magnitude"]:
-            r = df_bt[(df_bt.vs == other) & (df_bt.metric == "auc")]
-            if r.empty:
-                continue
-            r = r.iloc[0]
-            verdict = ("no significant difference" if r.p_holm >= 0.05
-                       else ("P5 better" if r.diff_mean > 0 else f"{other} better"))
-            out.append(f"- P5 vs {other}, AUC: {r.diff_mean:+.4f} "
-                       f"[{r.ci_95_lo:+.4f}, {r.ci_95_hi:+.4f}], Holm p={r.p_holm:.3f}, n={int(r.n)}: {verdict}.")
-    return "\n".join(out) if out else "- No test or metrics data available yet."
+def findings_from(tests_path: Path, label: str) -> str:
+    """Build findings block directly from a statistical tests CSV file."""
+    if not tests_path.exists():
+        return f"#### {label}\n- Results file not found: `{tests_path.name}`."
+    t = pd.read_csv(tests_path)
+    if t.empty:
+        return f"#### {label}\n- No tests recorded (all comparisons dropped or empty)."
+    lines = [f"#### {label}"]
+    for _, r in t.iterrows():
+        verdict = ("no significant difference" if r.p_holm >= 0.05
+                   else f"{r.ref} better" if r.diff_mean > 0 else f"{r.vs} better")
+        lines.append(f"- {r.ref} vs {r.vs} ({r.metric}, {r.family}): {r.diff_mean:+.4f} "
+                     f"[{r.ci_95_lo:+.4f}, {r.ci_95_hi:+.4f}], Holm p={r.p_holm:.3f}, n={int(r.n)}: {verdict}.")
+    return "\n".join(lines)
 
 
 def build_summary() -> str:
@@ -130,15 +113,13 @@ def build_summary() -> str:
         ("Fraud Stream", Path("results/experiment_results_fraud.csv")),
         ("Intrusion Stream", Path("results/experiment_results_intrusion.csv")),
         ("Electricity Stream", Path("results/experiment_results_electricity.csv")),
-        ("Weather Stream (Real)", Path("results/real_weather_budget_curves_summary.csv")),
         ("Decoupled Confirmatory (Seeds 4000-4029)", Path("results/budget_curves_mixed_decoupled_s4000_4029_confirmatory_summary.csv")),
+        ("Coupled Confirmatory (Seeds 3000-3029)", Path("results/budget_curves_mixed_s3000_3029_confirmatory_summary.csv")),
         ("Null Stream (Gaussian)", Path("results/null_stream_results.csv")),
         ("Null Stream (ELEC2 Shuffled)", Path("results/null_stream_elec2_null_results.csv")),
         ("Changepoints (Mixed)", Path("results/changepoint_results.csv")),
         ("Changepoints (Concept-Only)", Path("results/changepoint_concept_only_results.csv")),
         ("Sensitivity Sweep", Path("results/sensitivity_results.csv")),
-        ("Budget Curves Raw", Path("results/budget_curves_mixed_raw.csv")),
-        ("Budget Curves Metrics", Path("results/budget_curves_mixed_metrics.csv")),
     ]
 
     prov_rows = []
@@ -163,25 +144,28 @@ def build_summary() -> str:
     content.append(f"## 1. Main Benchmark — All 10 Policies{tag1}\n")
     if p1.exists():
         df1 = pd.read_csv(p1)
-        eval_df = df1.dropna(subset=["accuracy"])
-        per_seed = eval_df.groupby(["policy", "policy_name", "seed"]).agg(
-            acc=("accuracy", "mean"),
-            f1=("f1", "mean"),
-            retrains=("retrained", "sum"),
-            cost=("cost_seconds", "sum")
-        ).reset_index()
-        s1 = per_seed.groupby(["policy", "policy_name"]).agg(
-            acc_mean=("acc", "mean"),
-            acc_std=("acc", "std"),
-            f1_mean=("f1", "mean"),
-            f1_std=("f1", "std"),
-            retrains_mean=("retrains", "mean"),
-            retrains_std=("retrains", "std"),
-            cost_mean=("cost", "mean"),
-            cost_std=("cost", "std")
-        ).round(4).reset_index()
-        content.append(s1.to_markdown(index=False))
-        content.append("\n\n")
+        if df1["policy"].nunique() < 10:
+            content.append("**Main benchmark file incomplete (overwritten by a single-policy run). Excluded.**\n\n")
+        else:
+            eval_df = df1.dropna(subset=["accuracy"])
+            per_seed = eval_df.groupby(["policy", "policy_name", "seed"]).agg(
+                acc=("accuracy", "mean"),
+                f1=("f1", "mean"),
+                retrains=("retrained", "sum"),
+                cost=("cost_seconds", "sum")
+            ).reset_index()
+            s1 = per_seed.groupby(["policy", "policy_name"]).agg(
+                acc_mean=("acc", "mean"),
+                acc_std=("acc", "std"),
+                f1_mean=("f1", "mean"),
+                f1_std=("f1", "std"),
+                retrains_mean=("retrains", "mean"),
+                retrains_std=("retrains", "std"),
+                cost_mean=("cost", "mean"),
+                cost_std=("cost", "std")
+            ).round(4).reset_index()
+            content.append(s1.to_markdown(index=False))
+            content.append("\n\n")
 
     # 2-4. Multi-Dataset
     for ds_id, ds_name, fname in [
@@ -209,21 +193,6 @@ def build_summary() -> str:
                 cost_mean=("cost", "mean"),
             ).round(4).reset_index()
             content.append(s.to_markdown(index=False))
-            content.append("\n\n")
-
-    # 4b. Real Weather Stream
-    p_wea = PROJECT_ROOT / "results" / "real_weather_budget_curves_summary.csv"
-    p_wea_std = PROJECT_ROOT / "results" / "real_weather_standard.csv"
-    if p_wea.exists() or p_wea_std.exists():
-        content.append("## 4b. NOAA Weather Dataset (Real NEweather, 8 continuous features, 20 windows)\n")
-        content.append("Evaluating whether importance-weighted KS and DIS-fusion gains generalize beyond ELEC2 saturation.\n\n")
-        if p_wea_std.exists():
-            content.append("### Default-Threshold Operating Points on Weather\n")
-            content.append(pd.read_csv(p_wea_std).to_markdown(index=False))
-            content.append("\n\n")
-        if p_wea.exists():
-            content.append("### Matched-Budget Curves on Real Weather\n")
-            content.append(pd.read_csv(p_wea).to_markdown(index=False))
             content.append("\n\n")
 
     # 5. Null Streams
@@ -286,11 +255,8 @@ def build_summary() -> str:
     # 8a. Decoupled Confirmatory Benchmark (HYPOTHESIS_v3, seeds 4000-4029)
     p_dec_s = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_summary.csv"
     p_dec_t = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_tests.csv"
-    p_dec_m = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_metrics.csv"
     p_dec_d = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_dropped_tests.csv"
 
-    df_dec_m = pd.DataFrame()
-    df_dec_t = pd.DataFrame()
     if p_dec_s.exists():
         content.append("### 8a. Confirmatory Decoupled Benchmark (mixed_decoupled, Seeds 4000–4029, Artifact-Free)\n")
         content.append(
@@ -300,13 +266,10 @@ def build_summary() -> str:
         content.append(pd.read_csv(p_dec_s).to_markdown(index=False))
         content.append("\n\n")
 
-        if p_dec_m.exists():
-            df_dec_m = pd.read_csv(p_dec_m)
-
         if p_dec_t.exists():
             df_dec_t = pd.read_csv(p_dec_t)
             if not df_dec_t.empty:
-                content.append("#### Paired Statistical Tests on Decoupled Streams (Wilcoxon Signed-Rank with Holm-Bonferroni Correction & 95% Bootstrap CIs)\n")
+                content.append("#### Paired Statistical Tests on Decoupled Streams (Pre-Registered Coverage)\n")
                 content.append(df_dec_t.to_markdown(index=False))
                 content.append("\n\n")
 
@@ -320,6 +283,7 @@ def build_summary() -> str:
     # 8b. Confirmatory Coupled Benchmark (HYPOTHESIS_v2, seeds 3000-3029)
     p_mix3_s = PROJECT_ROOT / "results" / "budget_curves_mixed_s3000_3029_confirmatory_summary.csv"
     p_mix3_t = PROJECT_ROOT / "results" / "budget_curves_mixed_s3000_3029_confirmatory_tests.csv"
+    p_mix3_d = PROJECT_ROOT / "results" / "budget_curves_mixed_s3000_3029_confirmatory_dropped_tests.csv"
     if p_mix3_s.exists():
         content.append("### 8b. Confirmatory Coupled Benchmark (mixed, Seeds 3000–3029, Legacy Generator)\n")
         content.append(pd.read_csv(p_mix3_s).to_markdown(index=False))
@@ -327,51 +291,32 @@ def build_summary() -> str:
         if p_mix3_t.exists():
             df_mix3_t = pd.read_csv(p_mix3_t)
             if not df_mix3_t.empty:
-                content.append("#### Paired Statistical Tests on Coupled Streams (Legacy Generator)\n")
+                content.append("#### Paired Statistical Tests on Coupled Streams (Pre-Registered Coverage)\n")
                 content.append(df_mix3_t.to_markdown(index=False))
                 content.append("\n\n")
-
-    # 8c. Exploratory Coupled Benchmark (seeds 1000-1029)
-    p_bm = PROJECT_ROOT / "results" / "budget_curves_mixed_metrics.csv"
-    p_bt = PROJECT_ROOT / "results" / "budget_curves_mixed_tests.csv"
-    df_bm = pd.DataFrame()
-    df_bt = pd.DataFrame()
-
-    if p_bm.exists() and p_bm.stat().st_size > 0:
-        try:
-            df_bm = pd.read_csv(p_bm)
-            content.append("### 8c. Exploratory Coupled Benchmark (mixed, Seeds 1000–1029)\n")
-            agg_dict = {
-                "n_streams": ("stream", "count"),
-                "acc_at_3": ("acc@3", "mean"),
-                "acc_at_4": ("acc@4", "mean"),
-                "acc_at_5": ("acc@5", "mean"),
-                "curve_auc": ("auc", "mean"),
-            }
-            for col in ["near@3", "near@4", "near@5", "cp_recall", "cp_precision", "chance_recall", "chance_precision"]:
-                if col in df_bm.columns:
-                    agg_dict[col.replace("@", "_")] = (col, "mean")
-
-            s_bm = df_bm.groupby("policy").agg(**agg_dict).reset_index().sort_values("curve_auc", ascending=False).round(4)
-            content.append(s_bm.to_markdown(index=False))
-            content.append("\n\n")
-        except Exception as e:
-            logger.warning(f"Failed to read {p_bm}: {e}")
-
-    if p_bt.exists() and p_bt.stat().st_size > 0:
-        try:
-            df_bt = pd.read_csv(p_bt)
-            if not df_bt.empty:
-                content.append("#### Paired Statistical Tests on Exploratory Streams (Seeds 1000–1029)\n")
-                content.append(df_bt.to_markdown(index=False))
+        if p_mix3_d.exists():
+            df_mix3_d = pd.read_csv(p_mix3_d)
+            if not df_mix3_d.empty:
+                content.append("#### Dropped Tests on Coupled Streams (Coverage Filter Disclosure)\n")
+                content.append(df_mix3_d.to_markdown(index=False))
                 content.append("\n\n")
-        except Exception as e:
-            logger.warning(f"Failed to read {p_bt}: {e}")
 
-    # 9. Scientific Findings & Explicit Disclosures (dynamically generated)
+    # 9. Scientific Findings & Explicit Disclosures (dynamically generated from tests files)
     content.append("## 9. Scientific Findings & Explicit Disclosures\n\n")
-    content.append("### Empirical Findings (Data-Derived)\n")
-    content.append(findings(df_bt, df_bm, df_dec_t, df_dec_m))
+    content.append("### Empirical Findings (Data-Derived from Statistical Tests Files)\n\n")
+
+    dec_t = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_tests.csv"
+    mix_t = PROJECT_ROOT / "results" / "budget_curves_mixed_s3000_3029_confirmatory_tests.csv"
+    dec_rel = PROJECT_ROOT / "results" / "decoupled_RELAXED_exploratory_tests.csv"
+    mix_rel = PROJECT_ROOT / "results" / "mixed_RELAXED_exploratory_tests.csv"
+
+    content.append(findings_from(dec_t, "Decoupled Confirmatory Tests (Seeds 4000–4029, Pre-Registered Coverage)"))
+    content.append("\n\n")
+    content.append(findings_from(mix_t, "Coupled Confirmatory Tests (Seeds 3000–3029, Pre-Registered Coverage)"))
+    content.append("\n\n")
+    content.append(findings_from(dec_rel, "Decoupled Relaxed-Coverage Tests (Seeds 4000–4029, Coverage-Limited Exploratory)"))
+    content.append("\n\n")
+    content.append(findings_from(mix_rel, "Coupled Relaxed-Coverage Tests (Seeds 3000–3029, Coverage-Limited Exploratory)"))
     content.append("\n\n")
 
     content.append("### Label Setting & Supervision Disclosures\n")
