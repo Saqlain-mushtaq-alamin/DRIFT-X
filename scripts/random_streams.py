@@ -62,7 +62,7 @@ def generate_random_drift_stream(
                 cov_visible = True
             cp_info[w] = cov_visible
         
-        inform_by_window[w] = informative.copy()
+        inform_by_window[w] = list(informative)
         
         # Harmless drift: slow mean shift on non-informative features every window
         if drift_mode in ("mixed", "gradual_only", "harmless_only"):
