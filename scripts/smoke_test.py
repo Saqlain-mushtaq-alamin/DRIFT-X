@@ -84,7 +84,7 @@ def run_smoke_test():
     }
     
     runner = ExperimentRunner(config)
-    results = runner.run_all(df_override=df)
+    results = runner.run_all(df_override=df, output_filename="smoke_test_results.csv")
     
     logger.info(f"\nSmoke test complete! Logged {len(results)} rows.")
     assert len(results) > 0, "No results produced by ExperimentRunner!"
