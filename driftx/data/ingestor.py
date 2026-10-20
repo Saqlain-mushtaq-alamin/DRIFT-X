@@ -40,6 +40,7 @@ class DataIngestor:
             "synthetic": self._load_synthetic,
             "healthcare": self._load_healthcare,
             "electricity": self._load_electricity,
+            "weather": self._load_weather,
         }
 
         loader = loader_map.get(self.dataset_name)
@@ -158,6 +159,24 @@ class DataIngestor:
         elif df[self.target_col].dtype == object:
             df[self.target_col] = (df[self.target_col].astype(str).str.upper() == "UP").astype(int)
 
+        return df
+
+    def _load_weather(self, data_dir: str) -> pd.DataFrame:
+        candidates = [
+            Path(data_dir) / "weather.csv",
+            Path("data/raw/weather.csv"),
+        ]
+        found_path = next((p for p in candidates if p.exists()), None)
+        if found_path is not None:
+            df = pd.read_csv(found_path)
+        else:
+            url = "https://raw.githubusercontent.com/scikit-multiflow/streaming-datasets/master/weather.csv"
+            df = pd.read_csv(url)
+            step = 86400.0
+            df["Timestamp"] = np.arange(len(df), dtype=float) * step
+            target_path = Path(data_dir) / "weather.csv"
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(target_path, index=False)
         return df
 
 

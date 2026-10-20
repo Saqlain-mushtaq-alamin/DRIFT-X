@@ -1,0 +1,22 @@
+# NOAA Weather (NEweather) Dataset Configuration
+# PROVENANCE: REAL dataset — NOAA daily meteorological observations (Bellevue, Nebraska).
+data:
+  dataset: "weather"
+  name: "NOAA Weather Stream (Real)"
+  timestamp_col: "Timestamp"
+  target_col: "target"
+  window_size: 20
+  min_window_samples: 800
+  data_path: "data/raw/weather.csv"
+  data_source_type: "real"
+  drop_columns: []
+
+dataset: "weather"
+name: "NOAA Weather Stream (Real)"
+timestamp_col: "Timestamp"
+target_col: "target"
+window_size: 20
+min_window_samples: 800
+data_path: "data/raw/weather.csv"
+data_source_type: "real"
+drop_columns: []
