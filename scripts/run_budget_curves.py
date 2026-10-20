@@ -347,7 +347,7 @@ def seed_status(seeds: List[int]) -> str:
 
 
 def hypothesis_is_tracked() -> bool:
-    for p in ("HYPOTHESIS_v2.md", "planning/HYPOTHESIS_v2.md"):
+    for p in ("HYPOTHESIS_v3.md", "planning/HYPOTHESIS_v3.md", "HYPOTHESIS_v2.md", "planning/HYPOTHESIS_v2.md"):
         r = subprocess.run(["git", "ls-files", "--error-unmatch", p], cwd=PROJECT_ROOT,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if r.returncode == 0:
