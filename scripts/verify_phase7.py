@@ -31,7 +31,7 @@ def run_verification():
     config["project"]["n_seeds"] = 2
     logger.info("Step 1: Running ExperimentRunner (2 seeds)...")
     runner = ExperimentRunner(config)
-    results = runner.run_all()
+    results = runner.run_all(output_filename="verify_phase7_results.csv")
     assert not results.empty, "Experiment results dataframe is empty!"
     logger.info("✓ Step 1 Complete: Experiment runner finished.")
 
