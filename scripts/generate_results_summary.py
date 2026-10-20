@@ -211,6 +211,21 @@ def build_summary() -> str:
             content.append(s.to_markdown(index=False))
             content.append("\n\n")
 
+    # 4b. Real Weather Stream
+    p_wea = PROJECT_ROOT / "results" / "real_weather_budget_curves_summary.csv"
+    p_wea_std = PROJECT_ROOT / "results" / "real_weather_standard.csv"
+    if p_wea.exists() or p_wea_std.exists():
+        content.append("## 4b. NOAA Weather Dataset (Real NEweather, 8 continuous features, 20 windows)\n")
+        content.append("Evaluating whether importance-weighted KS and DIS-fusion gains generalize beyond ELEC2 saturation.\n\n")
+        if p_wea_std.exists():
+            content.append("### Default-Threshold Operating Points on Weather\n")
+            content.append(pd.read_csv(p_wea_std).to_markdown(index=False))
+            content.append("\n\n")
+        if p_wea.exists():
+            content.append("### Matched-Budget Curves on Real Weather\n")
+            content.append(pd.read_csv(p_wea).to_markdown(index=False))
+            content.append("\n\n")
+
     # 5. Null Streams
     content.append("## 5. Null Stream Calibration (False Positive Rate at Full Scale)\n")
     p_null_ind = PROJECT_ROOT / "results" / "null_stream_summary.csv"
@@ -261,21 +276,71 @@ def build_summary() -> str:
         content.append(s_sens.to_markdown(index=False))
         content.append("\n\n")
 
-    # 8. Matched-Budget Multi-Stream Evaluation (30 Streams, seeds 1000-1029)
+    # 8. Matched-Budget Multi-Stream Evaluation
+    content.append("## 8. Matched-Budget Multi-Stream Benchmark\n")
+    content.append(
+        "Every curve is dual-anchored at (0, P0 accuracy) and (N_eval, always-retrain accuracy), "
+        "guaranteeing identical evaluation across all streams without dropped instances.\n\n"
+    )
+
+    # 8a. Decoupled Confirmatory Benchmark (HYPOTHESIS_v3, seeds 4000-4029)
+    p_dec_s = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_summary.csv"
+    p_dec_t = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_tests.csv"
+    p_dec_m = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_metrics.csv"
+    p_dec_d = PROJECT_ROOT / "results" / "budget_curves_mixed_decoupled_s4000_4029_confirmatory_dropped_tests.csv"
+
+    df_dec_m = pd.DataFrame()
+    df_dec_t = pd.DataFrame()
+    if p_dec_s.exists():
+        content.append("### 8a. Confirmatory Decoupled Benchmark (mixed_decoupled, Seeds 4000–4029, Artifact-Free)\n")
+        content.append(
+            "Harmful concept changes occur strictly in features 0–5; harmless covariate drift occurs strictly in features 6–14. "
+            "Eliminates the generator artifact where formerly informative features began drifting at change points.\n\n"
+        )
+        content.append(pd.read_csv(p_dec_s).to_markdown(index=False))
+        content.append("\n\n")
+
+        if p_dec_m.exists():
+            df_dec_m = pd.read_csv(p_dec_m)
+
+        if p_dec_t.exists():
+            df_dec_t = pd.read_csv(p_dec_t)
+            if not df_dec_t.empty:
+                content.append("#### Paired Statistical Tests on Decoupled Streams (Wilcoxon Signed-Rank with Holm-Bonferroni Correction & 95% Bootstrap CIs)\n")
+                content.append(df_dec_t.to_markdown(index=False))
+                content.append("\n\n")
+
+        if p_dec_d.exists():
+            df_dec_d = pd.read_csv(p_dec_d)
+            if not df_dec_d.empty:
+                content.append("#### Dropped Tests on Decoupled Streams (Coverage Filter Disclosure)\n")
+                content.append(df_dec_d.to_markdown(index=False))
+                content.append("\n\n")
+
+    # 8b. Confirmatory Coupled Benchmark (HYPOTHESIS_v2, seeds 3000-3029)
+    p_mix3_s = PROJECT_ROOT / "results" / "budget_curves_mixed_s3000_3029_confirmatory_summary.csv"
+    p_mix3_t = PROJECT_ROOT / "results" / "budget_curves_mixed_s3000_3029_confirmatory_tests.csv"
+    if p_mix3_s.exists():
+        content.append("### 8b. Confirmatory Coupled Benchmark (mixed, Seeds 3000–3029, Legacy Generator)\n")
+        content.append(pd.read_csv(p_mix3_s).to_markdown(index=False))
+        content.append("\n\n")
+        if p_mix3_t.exists():
+            df_mix3_t = pd.read_csv(p_mix3_t)
+            if not df_mix3_t.empty:
+                content.append("#### Paired Statistical Tests on Coupled Streams (Legacy Generator)\n")
+                content.append(df_mix3_t.to_markdown(index=False))
+                content.append("\n\n")
+
+    # 8c. Exploratory Coupled Benchmark (seeds 1000-1029)
     p_bm = PROJECT_ROOT / "results" / "budget_curves_mixed_metrics.csv"
     p_bt = PROJECT_ROOT / "results" / "budget_curves_mixed_tests.csv"
     df_bm = pd.DataFrame()
     df_bt = pd.DataFrame()
-    df_bm_mean = pd.DataFrame()
 
     if p_bm.exists() and p_bm.stat().st_size > 0:
         try:
             df_bm = pd.read_csv(p_bm)
-            content.append("## 8. Matched-Budget Multi-Stream Benchmark\n")
-            content.append(
-                "Every curve is dual-anchored at (0, P0 accuracy) and (N_eval, always-retrain accuracy), "
-                "guaranteeing identical evaluation across all streams without dropped instances.\n\n"
-            )
+            content.append("### 8c. Exploratory Coupled Benchmark (mixed, Seeds 1000–1029)\n")
             agg_dict = {
                 "n_streams": ("stream", "count"),
                 "acc_at_3": ("acc@3", "mean"),
@@ -283,31 +348,13 @@ def build_summary() -> str:
                 "acc_at_5": ("acc@5", "mean"),
                 "curve_auc": ("auc", "mean"),
             }
-            if "near@3" in df_bm.columns:
-                agg_dict["near_3"] = ("near@3", "mean")
-            if "near@4" in df_bm.columns:
-                agg_dict["near_4"] = ("near@4", "mean")
-            if "near@5" in df_bm.columns:
-                agg_dict["near_5"] = ("near@5", "mean")
-
-            # Check for cp_recall or mean_cp_recall
-            rec_col = "cp_recall" if "cp_recall" in df_bm.columns else ("mean_cp_recall" if "mean_cp_recall" in df_bm.columns else None)
-            prec_col = "cp_precision" if "cp_precision" in df_bm.columns else ("mean_cp_precision" if "mean_cp_precision" in df_bm.columns else None)
-            if rec_col:
-                agg_dict["cp_recall"] = (rec_col, "mean")
-            if prec_col:
-                agg_dict["cp_precision"] = (prec_col, "mean")
-            if "chance_recall" in df_bm.columns:
-                agg_dict["chance_recall"] = ("chance_recall", "mean")
-            if "chance_precision" in df_bm.columns:
-                agg_dict["chance_precision"] = ("chance_precision", "mean")
+            for col in ["near@3", "near@4", "near@5", "cp_recall", "cp_precision", "chance_recall", "chance_precision"]:
+                if col in df_bm.columns:
+                    agg_dict[col.replace("@", "_")] = (col, "mean")
 
             s_bm = df_bm.groupby("policy").agg(**agg_dict).reset_index().sort_values("curve_auc", ascending=False).round(4)
-            content.append("### Matched-Budget Performance Summary\n")
             content.append(s_bm.to_markdown(index=False))
             content.append("\n\n")
-
-            df_bm_mean = df_bm.groupby("policy").mean(numeric_only=True).reset_index()
         except Exception as e:
             logger.warning(f"Failed to read {p_bm}: {e}")
 
@@ -315,7 +362,7 @@ def build_summary() -> str:
         try:
             df_bt = pd.read_csv(p_bt)
             if not df_bt.empty:
-                content.append("### Paired Statistical Tests vs P5 DIS-Fused (Wilcoxon Signed-Rank with Holm-Bonferroni Correction & 95% Bootstrap CIs)\n")
+                content.append("#### Paired Statistical Tests on Exploratory Streams (Seeds 1000–1029)\n")
                 content.append(df_bt.to_markdown(index=False))
                 content.append("\n\n")
         except Exception as e:
@@ -324,7 +371,7 @@ def build_summary() -> str:
     # 9. Scientific Findings & Explicit Disclosures (dynamically generated)
     content.append("## 9. Scientific Findings & Explicit Disclosures\n\n")
     content.append("### Empirical Findings (Data-Derived)\n")
-    content.append(findings(df_bt, df_bm_mean))
+    content.append(findings(df_bt, df_bm, df_dec_t, df_dec_m))
     content.append("\n\n")
 
     content.append("### Label Setting & Supervision Disclosures\n")
