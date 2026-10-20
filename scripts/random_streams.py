@@ -89,6 +89,7 @@ def generate_random_drift_stream(
         rows.append(d)
         
     df = pd.concat(rows, ignore_index=True)
+    df.attrs["informative"] = inform_by_window
     if return_info:
         return df, cps, cp_info
     return df, cps
