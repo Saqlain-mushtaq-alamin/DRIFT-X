@@ -47,6 +47,7 @@ def generate_random_drift_stream(
     coef[informative] = rng.uniform(0.8, 2.0, 4) * rng.choice([-1, 1], 4)
     mean = np.zeros(p)
 
+    inform_by_window = {}
     rows = []
     for w in range(n_windows):
         # Harmful concept change at a change point: new coefficients
@@ -60,6 +61,8 @@ def generate_random_drift_stream(
                 mean[informative] += rng.uniform(-1.5, 1.5, 4)
                 cov_visible = True
             cp_info[w] = cov_visible
+        
+        inform_by_window[w] = informative.copy()
         
         # Harmless drift: slow mean shift on non-informative features every window
         if drift_mode in ("mixed", "gradual_only", "harmless_only"):
