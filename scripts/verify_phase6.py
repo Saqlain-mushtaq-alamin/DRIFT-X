@@ -29,11 +29,11 @@ def run_verification():
     # 2. Instantiate and Run ExperimentRunner
     logger.info(f"Instantiating ExperimentRunner for {config['project']['n_seeds']} seeds...")
     runner = ExperimentRunner(config)
-    results = runner.run_all()
+    results = runner.run_all(output_filename="verify_phase6_results.csv")
 
     # 3. Assert CSV Output Existence and Schema Integrity
     output_dir = Path(config.get("output", {}).get("results_dir", "results"))
-    csv_path = output_dir / "experiment_results.csv"
+    csv_path = output_dir / "verify_phase6_results.csv"
     
     assert csv_path.exists(), f"Output results CSV missing at {csv_path}"
     logger.info(f"✓ Results CSV confirmed at {csv_path}")
