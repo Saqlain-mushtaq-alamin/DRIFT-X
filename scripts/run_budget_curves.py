@@ -461,7 +461,7 @@ def preflight(n_jobs: int) -> int:
 def main():
     ap = argparse.ArgumentParser(description="DRIFT-X matched-budget evaluation (final)")
     ap.add_argument("--regime", default="mixed",
-                    choices=["mixed", "gradual_only", "abrupt_only", "concept_only", "harmless_only", "all"])
+                    choices=["mixed", "mixed_decoupled", "gradual_only", "abrupt_only", "concept_only", "harmless_only", "all"])
     ap.add_argument("--seed-start", type=int, default=3000)
     ap.add_argument("--n-streams", type=int, default=30)
     ap.add_argument("--n-jobs", type=int, default=4)
@@ -474,7 +474,7 @@ def main():
         sys.exit(preflight(args.n_jobs))
 
     seeds = list(range(args.seed_start, args.seed_start + args.n_streams))
-    regimes = (["mixed", "abrupt_only", "gradual_only", "concept_only", "harmless_only"]
+    regimes = (["mixed", "mixed_decoupled", "abrupt_only", "gradual_only", "concept_only", "harmless_only"]
                if args.regime == "all" else [args.regime])
     if args.count_jobs:
         print(f"{len(make_jobs('mixed', seeds))} runs per regime, {len(regimes)} regime(s)")
@@ -483,11 +483,11 @@ def main():
     status = seed_status(seeds)
     if args.confirmatory:
         if status != "fresh":
-            sys.exit(f"REFUSED: seeds overlap the '{status}' range. Use fresh seeds (e.g. 3000+).")
+            sys.exit(f"REFUSED: seeds overlap the '{status}' range. Use fresh seeds (e.g. 4000+).")
         if get_git_dirty():
             sys.exit("REFUSED: git tree is dirty. Commit everything first.")
         if not hypothesis_is_tracked():
-            sys.exit("REFUSED: HYPOTHESIS_v2.md is not tracked by git. Commit it before the run.")
+            sys.exit("REFUSED: HYPOTHESIS_v3.md is not tracked by git. Commit it before the run.")
         tag = f"_s{seeds[0]}_{seeds[-1]}_confirmatory"
     else:
         tag = f"_s{seeds[0]}_{seeds[-1]}_{'exploratory' if status != 'fresh' else 'unregistered'}"
