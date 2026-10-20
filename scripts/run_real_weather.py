@@ -56,7 +56,7 @@ def run_one_weather(pol: str, sec: str, key: str, val: Any) -> Dict[str, Any]:
         if sec == "fusion" and key == "dis_threshold":
             cfg["fusion"]["fixed_threshold"] = val
 
-    ev = ExperimentRunner(cfg).run_all()
+    ev = ExperimentRunner(cfg).run_all(output_filename="temp_weather_run.csv")
     ev_active = ev[ev["window_id"] > 0]
 
     return {
