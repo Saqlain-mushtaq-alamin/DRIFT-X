@@ -65,7 +65,7 @@ def run_verification():
 
     # 4. Generate LaTeX and Markdown Paper Tables
     logger.info("\nStep 4: Generating Paper LaTeX and Markdown Tables...")
-    table_df = generate_paper_tables(results_path=str(results_dir / "experiment_results.csv"))
+    table_df = generate_paper_tables(results_path=str(results_dir / "verify_phase7_results.csv"))
     assert not table_df.empty, "Paper table dataframe is empty!"
     assert (results_dir / "paper_table.tex").exists(), "LaTeX table paper_table.tex missing!"
     assert (results_dir / "paper_table.md").exists(), "Markdown table paper_table.md missing!"
