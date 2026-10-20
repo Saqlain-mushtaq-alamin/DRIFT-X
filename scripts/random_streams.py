@@ -38,11 +38,14 @@ def generate_random_drift_stream(
     # Random change points (not aligned with any fixed retraining schedule)
     n_cp = rng.randint(2, 5)
     cps_all = sorted(rng.choice(range(4, n_windows - 2), n_cp, replace=False))
-    cps = [int(c) for c in cps_all] if drift_mode in ("mixed", "concept_only", "abrupt_only") else []
+    cps = [int(c) for c in cps_all] if drift_mode in ("mixed", "mixed_decoupled", "concept_only", "abrupt_only") else []
     cp_info = {}
 
+    if drift_mode == "mixed_decoupled":
+        pool_h, pool_d = np.arange(0, 6), np.arange(6, p)
+
     # Initial informative features and concept coefficients
-    informative = rng.choice(p, 4, replace=False)
+    informative = rng.choice(pool_h if drift_mode == "mixed_decoupled" else p, 4, replace=False)
     coef = np.zeros(p)
     coef[informative] = rng.uniform(0.8, 2.0, 4) * rng.choice([-1, 1], 4)
     mean = np.zeros(p)
@@ -51,8 +54,8 @@ def generate_random_drift_stream(
     rows = []
     for w in range(n_windows):
         # Harmful concept change at a change point: new coefficients
-        if w in cps and drift_mode in ("mixed", "concept_only", "abrupt_only"):
-            informative = rng.choice(p, 4, replace=False)
+        if w in cps and drift_mode in ("mixed", "mixed_decoupled", "concept_only", "abrupt_only"):
+            informative = rng.choice(pool_h if drift_mode == "mixed_decoupled" else p, 4, replace=False)
             coef = np.zeros(p)
             coef[informative] = rng.uniform(0.8, 2.0, 4) * rng.choice([-1, 1], 4)
             # Sometimes abrupt covariate shift on informative features (visible to KS/SHAP on X)
@@ -65,8 +68,8 @@ def generate_random_drift_stream(
         inform_by_window[w] = list(informative)
         
         # Harmless drift: slow mean shift on non-informative features every window
-        if drift_mode in ("mixed", "gradual_only", "harmless_only"):
-            harmless = np.setdiff1d(np.arange(p), informative)
+        if drift_mode in ("mixed", "mixed_decoupled", "gradual_only", "harmless_only"):
+            harmless = pool_d if drift_mode == "mixed_decoupled" else np.setdiff1d(np.arange(p), informative)
             mean[harmless] += rng.normal(0, 0.15, len(harmless))
             
         if drift_mode == "gradual_only":
