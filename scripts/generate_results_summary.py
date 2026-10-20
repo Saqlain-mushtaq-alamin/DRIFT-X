@@ -118,6 +118,8 @@ def build_summary() -> str:
         ("Fraud Stream", Path("results/experiment_results_fraud.csv")),
         ("Intrusion Stream", Path("results/experiment_results_intrusion.csv")),
         ("Electricity Stream", Path("results/experiment_results_electricity.csv")),
+        ("Weather Stream (Real)", Path("results/real_weather_budget_curves_summary.csv")),
+        ("Decoupled Confirmatory (Seeds 4000-4029)", Path("results/budget_curves_mixed_decoupled_s4000_4029_confirmatory_summary.csv")),
         ("Null Stream (Gaussian)", Path("results/null_stream_results.csv")),
         ("Null Stream (ELEC2 Shuffled)", Path("results/null_stream_elec2_null_results.csv")),
         ("Changepoints (Mixed)", Path("results/changepoint_results.csv")),
