@@ -205,4 +205,41 @@ This document provides a detailed breakdown of the work completed across Phase 0
 - **Unit Tests**: `tests/test_serving.py` (7 tests), `tests/test_multi_dataset.py` (5 tests)
 - **Script**: `python scripts/verify_phase8.py` (Verified 100% across multi-dataset ingestion, zero-leakage daily windowing, multi-domain experiment runs, cross-dataset table generation, and FastAPI endpoints).
 
+---
+
+## 🔬 Phase 9: Matched-Budget Benchmarking & Decoupled Generator Falsification
+
+### Objectives & Deliverables
+- **The Coupled Generator Artifact:** Identified structural feature bleed-through in classic synthetic hyperplane generators: when formerly informative features $\mathcal{S}_\text{inf}$ rotate out of the concept pool, they immediately enter the harmless drift pool $\mathcal{S}_\text{harm}$ and begin drifting. Because historical model SHAP attributions are highest on $\mathcal{S}_\text{inf}$, importance-weighted KS tests perceive massive drift at the change point, creating an illusion of label-free concept detection ($93.2\%$ recall on invisible concept shifts vs $43.4\%$ chance).
+- **The Decoupled Benchmark Generator (`mixed_decoupled`):** Implemented in `scripts/random_streams.py`. Strictly isolates concept rotation to features 0–5 (zero covariate drift) and harmless drift to features 6–14 (zero concept relation). Invisible concept shift recall collapses to chance ($45.2\%$ vs $43.4\%$).
+- **Dual-Anchored Continuous Budget Curves (`scripts/run_budget_curves.py`):**
+  - Sweeps all 14 policies across dense exponential threshold grids spanning $0$ to $N_\text{eval}$ retrains.
+  - Anchors curves at $(0, \text{Acc}_\text{never})$ and $(N_\text{eval}, \text{Acc}_\text{always})$.
+  - Evaluates interpolated accuracy at matched integer budgets $B \in \{1, \dots, 10\}$ and Curve AUC.
+  - Reports operating coverage ($\text{near@B}$, $\text{auc\_cov}$) to prevent unsupported interpolation claims.
+- **Pre-Registered Confirmatory Multi-Stream Evaluation (`HYPOTHESIS_v3.md`):**
+  - Pre-declared test families across $N=30$ independent streams (seeds 4000–4029) under Holm-Bonferroni step-down error control.
+  - Demonstrated no detectable difference between importance-weighted KS, DIS-fusion, and unweighted KS (Holm $p \ge 0.673$).
+  - Demonstrated that only supervised error-monitoring triggers (Page-Hinkley) achieve statistically significant accuracy gains at matched budget (+3.1 to +3.5%, Holm $p \le 0.006$).
+
+---
+
+## 🌍 Phase 10: Real-World Stream Evaluation, Provenance Audit & Publication Package
+
+### Objectives & Deliverables
+- **Real Weather Stream Benchmark (`scripts/run_real_weather.py`):**
+  - Evaluated on NOAA NEweather (Bellevue, Nebraska): 18,159 observations, 8 features, 20 windows (19 evaluation windows).
+  - Unweighted KS (P2) retrained in 7 of 19 windows; importance-weighted P5 and P7 retrained in 18–19 of 19 windows.
+  - Confirmed that SHAP-weighted statistics are more sensitive to organic distribution shift than unweighted tests.
+  - Verified accuracy spread: $0.7525$ (P0) to $0.7706$ (P7) = $0.0181$ spread; $0.0077$ spread corresponds to curve AUC between P5 and P2.
+- **Null Stream False-Alarm Calibration (`scripts/run_null_stream.py`):**
+  - Evaluated false positive retraining across 95 windows (20 windows $\times$ 5 seeds) on Independent Gaussian Null and Shuffled Disjoint ELEC2 Null: observed $0/95$ false retrains for all statistical policies ($p_\text{upper} \approx 3.10\%$).
+- **Automated Reproducibility & Provenance Audit (`scripts/generate_results_summary.py`):**
+  - Automatically verifies git commit hashes, frozen config SHA256 hashes (`28d0339c240d`), and clean working trees for all result CSVs.
+  - Dynamically compiles comprehensive findings and paired statistical tests into `planning/results_summary.md`.
+- **Publication Package:**
+  - Pinned complete Python environment via `requirements-lock.txt` (`xgboost==3.2.0`, `shap==0.51.0`, `river==0.22.0`, `scikit-learn==1.8.0`, `numpy==1.26.4`, `pandas==2.3.3`, `scipy==1.16.3`).
+  - Authored full academic paper manuscript: `paper/paper.md` and root `paper.md`.
+
+
 
