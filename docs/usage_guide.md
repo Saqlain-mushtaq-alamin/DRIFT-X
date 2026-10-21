@@ -93,6 +93,35 @@ python scripts/run_sensitivity.py
 python scripts/generate_tables.py
 ```
 
+### Phase 9: Matched-Budget Confirmatory Benchmark & Decoupled Generator
+Executes the pre-registered confirmatory benchmark across 30 independent decoupled streams under family-wise error control:
+```powershell
+# Preflight check (wiring and 2 tuning streams)
+python scripts/run_budget_curves.py --preflight
+
+# Full Confirmatory Decoupled Run (30 streams, seeds 4000-4029, artifact-free)
+python scripts/run_budget_curves.py --regime mixed_decoupled --seed-start 4000 --n-streams 30 --confirmatory
+
+# Analyze coverage-relaxed exploratory comparisons from cached raw sweeps
+python scripts/analyze_relaxed.py
+
+# Verify changepoint detection under pure concept vs mixed drift
+python scripts/run_known_changepoints.py
+```
+
+### Phase 10: Real Stream Evaluation, Null Calibration & Provenance Audit
+Runs benchmarks on physical/economic continuous data streams and validates provenance:
+```powershell
+# Run Real Weather Benchmark (NOAA NEweather, default thresholds + budget curves)
+python scripts/run_real_weather.py
+
+# Run Null Stream Calibration (Gaussian & ELEC2 Shuffled, 95 windows)
+python scripts/run_null_stream.py
+
+# Run Provenance & Reproducibility Audit, compiling planning/results_summary.md
+python scripts/generate_results_summary.py
+```
+
 ---
 
 ## ⚙️ Configuration Parameters (`configs/default.yaml`)
