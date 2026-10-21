@@ -196,12 +196,13 @@ class ExperimentRunner:
         results_df = pd.DataFrame(all_results)
         
         # Save to CSV
-        output_dir = Path(self.config.get("output", {}).get("results_dir", "results"))
-        output_dir.mkdir(parents=True, exist_ok=True)
-        fname = output_filename if output_filename else "experiment_results.csv"
-        csv_path = output_dir / fname
-        results_df.to_csv(csv_path, index=False)
-        logger.info(f"Results saved to {csv_path}")
+        if self.config.get("output", {}).get("save_csv", True):
+            output_dir = Path(self.config.get("output", {}).get("results_dir", "results"))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            fname = output_filename if output_filename else "experiment_results.csv"
+            csv_path = output_dir / fname
+            results_df.to_csv(csv_path, index=False)
+            logger.info(f"Results saved to {csv_path}")
         
         return results_df
     
@@ -611,14 +612,15 @@ class ExperimentRunner:
         # Persist latest model and DIS status to results/ using ModelRegistry
         try:
             from driftx.training.registry import ModelRegistry
-            output_dir = self.config.get("output", {}).get("results_dir", "results")
-            registry = ModelRegistry(output_dir)
-            registry.export_latest_artifacts(
-                trainer=trainer,
-                dis_result=last_dis_result,
-                atc_result=last_atc_result,
-                output_dir=output_dir,
-            )
+            if self.config.get("output", {}).get("export_artifacts", True):
+                output_dir = self.config.get("output", {}).get("results_dir", "results")
+                registry = ModelRegistry(output_dir)
+                registry.export_latest_artifacts(
+                    trainer=trainer,
+                    dis_result=last_dis_result,
+                    atc_result=last_atc_result,
+                    output_dir=output_dir,
+                )
         except Exception as e:
             logger.debug(f"ModelRegistry export notice: {e}")
         
