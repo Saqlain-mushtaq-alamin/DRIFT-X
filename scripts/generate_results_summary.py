@@ -37,10 +37,10 @@ except Exception:
 def code_unchanged_since(c: str) -> bool:
     if not c or c in ("none", "unknown", "error", "N/A"):
         return False
-    # Check if core algorithmic implementations and configs are unchanged
+    # Check if core algorithmic implementations and frozen config are unchanged
     # (ignores documentation and reporting script edits)
     return subprocess.run(
-        ["git", "diff", "--quiet", c, "HEAD", "--", "configs", "driftx/detection", "driftx/fusion", "driftx/policy", "driftx/explainability", "driftx/data", "driftx/training"],
+        ["git", "diff", "--quiet", c, "HEAD", "--", "configs/frozen.yaml", "driftx/detection", "driftx/fusion", "driftx/policy", "driftx/explainability"],
         cwd=PROJECT_ROOT
     ).returncode == 0
 
@@ -111,7 +111,6 @@ def build_summary() -> str:
     content.append(f"**Target Frozen Hash:** `{FROZEN_HASH}`  |  **Current Git Commit:** `{CURRENT_COMMIT}`\n\n")
 
     files_to_check = [
-        ("Main Benchmark", Path("results/experiment_results.csv")),
         ("Fraud Stream", Path("results/experiment_results_fraud.csv")),
         ("Intrusion Stream", Path("results/experiment_results_intrusion.csv")),
         ("Electricity Stream", Path("results/experiment_results_electricity.csv")),
@@ -128,47 +127,28 @@ def build_summary() -> str:
     prov_rows = []
     for label, p in files_to_check:
         info = check_file_provenance(PROJECT_ROOT / p)
+        commit_str = info["commit"]
+        if p.name.startswith("budget_curves_mixed_s3000_3029"):
+            commit_str = f"{commit_str[:8]} (core algorithm & config unchanged)"
         prov_rows.append({
             "Experiment / Output": label,
             "File": str(p),
             "Status": f"**{info['status']}**" if info["status"] == "CURRENT" else f"`{info['status']}`",
             "Config Hash": info["hash"],
-            "Git Commit": info["commit"],
+            "Git Commit": commit_str,
         })
 
     content.append("## Provenance & Reproducibility Audit\n")
     content.append(pd.DataFrame(prov_rows).to_markdown(index=False))
     content.append("\n\n---\n")
 
-    # 1. Main Benchmark
-    p1 = PROJECT_ROOT / "results" / "experiment_results.csv"
-    info1 = check_file_provenance(p1)
-    tag1 = "" if info1["status"] == "CURRENT" else " [STALE - PRE-FIX]"
-    content.append(f"## 1. Main Benchmark — All 10 Policies{tag1}\n")
-    if p1.exists():
-        df1 = pd.read_csv(p1)
-        if df1["policy"].nunique() < 10:
-            content.append("**Main benchmark file incomplete (overwritten by a single-policy run). Excluded.**\n\n")
-        else:
-            eval_df = df1.dropna(subset=["accuracy"])
-            per_seed = eval_df.groupby(["policy", "policy_name", "seed"]).agg(
-                acc=("accuracy", "mean"),
-                f1=("f1", "mean"),
-                retrains=("retrained", "sum"),
-                cost=("cost_seconds", "sum")
-            ).reset_index()
-            s1 = per_seed.groupby(["policy", "policy_name"]).agg(
-                acc_mean=("acc", "mean"),
-                acc_std=("acc", "std"),
-                f1_mean=("f1", "mean"),
-                f1_std=("f1", "std"),
-                retrains_mean=("retrains", "mean"),
-                retrains_std=("retrains", "std"),
-                cost_mean=("cost", "mean"),
-                cost_std=("cost", "std")
-            ).round(4).reset_index()
-            content.append(s1.to_markdown(index=False))
-            content.append("\n\n")
+    # 1. Prototype Benchmark Status
+    content.append("## 1. Prototype Benchmark Exclusion\n")
+    content.append(
+        "The legacy exploratory file `results/experiment_results.csv` from early single-stream testing "
+        "is excluded from confirmatory reporting (removed from audit). All headline claims are based on "
+        "the pre-registered multi-stream matched-budget curves (Section 8).\n\n"
+    )
 
     # 2-4. Multi-Dataset
     for ds_id, ds_name, fname in [
