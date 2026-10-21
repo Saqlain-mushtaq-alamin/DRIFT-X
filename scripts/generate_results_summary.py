@@ -37,8 +37,10 @@ except Exception:
 def code_unchanged_since(c: str) -> bool:
     if not c or c in ("none", "unknown", "error", "N/A"):
         return False
+    # Check if core algorithmic implementations and configs are unchanged
+    # (ignores documentation and reporting script edits)
     return subprocess.run(
-        ["git", "diff", "--quiet", c, "HEAD", "--", "driftx", "scripts", "configs"],
+        ["git", "diff", "--quiet", c, "HEAD", "--", "configs", "driftx/detection", "driftx/fusion", "driftx/policy", "driftx/explainability", "driftx/data", "driftx/training"],
         cwd=PROJECT_ROOT
     ).returncode == 0
 
