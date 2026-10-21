@@ -343,6 +343,36 @@ def build_summary() -> str:
     content.append(findings_from(mix_rel, "Coupled Relaxed-Coverage Tests (Seeds 3000–3029, Coverage-Limited Exploratory)"))
     content.append("\n\n")
 
+    content.append("### Methodological & Empirical Disclosures (Addressing Core Claims)\n\n")
+    content.append(
+        "1. **No Detectable Difference (Not Statistical Parity):**\n"
+        "   - A non-significant hypothesis test indicates the absence of a detectable difference, not proof of equivalence or parity.\n"
+        "   - On decoupled streams, the 95% bootstrap CI for P5 vs P2 acc@4 is `[-0.0015, +0.0258]` (Holm p = 0.673), which still allows an advantage of up to 2.6 percentage points. On AUC, the CI is `[-0.0054, +0.0083]` (Holm p = 1.000).\n"
+        "   - For P7 vs P2, acc@4 CI is `[-0.0048, +0.0207]` and AUC CI is `[-0.0078, +0.0089]`. For wstat vs P2, acc@4 CI is `[-0.0075, +0.0126]` and AUC CI is `[-0.0074, +0.0054]`.\n"
+        "   - *Rigorous phrasing:* 'There is no detectable difference between importance-weighted/fused policies and unweighted KS; however, the data cannot rule out true differences up to about ±0.01 on AUC and ±0.02 on acc@4.'\n\n"
+        "2. **Fixed Schedule Comparison:**\n"
+        "   - Neither P5 nor P7 shows a detectable difference compared to fixed-schedule retraining (P1) at matched budget.\n"
+        "   - P5 vs P1: diff +0.0052, 95% CI `[-0.0027, +0.0133]`, Holm p = 0.955 on AUC; diff +0.0012, 95% CI `[-0.0158, +0.0187]`, Holm p = 1.000 on acc@4.\n"
+        "   - P7 vs P1: diff +0.0041, 95% CI `[-0.0056, +0.0136]`, Holm p = 0.955 on AUC; diff -0.0027, 95% CI `[-0.0190, +0.0135]`, Holm p = 1.000 on acc@4.\n"
+        "   - The data cannot rule out differences of up to ±0.015 on AUC and ±0.02 on acc@4 relative to a fixed schedule.\n\n"
+        "3. **Bleed-Through Generator Artifact: Mechanism vs. Proof:**\n"
+        "   - The bleed-through of concept shifts into harmless drift pools is a **structural mechanism** revealed by code inspection of the coupled generator, not a theoretical mathematical proof.\n"
+        "   - The decoupled generator run serves as the empirical controlled experiment: when concept features (0–5) and covariate drift features (6–14) are strictly partitioned, the apparent concept-detection advantage of importance weighting collapses.\n\n"
+        "4. **Coupled vs. Decoupled Side-by-Side (The Artifact in Action):**\n"
+        "   - On coupled streams (seeds 3000–3029, legacy coupled generator): P7 beat P2 by **+0.0139** at acc@4 (95% CI `[+0.0046, +0.0241]`, Holm p = 0.063, trending), and P5-wstat beat P2 by **+0.0166** (95% CI `[+0.0072, +0.0272]`, Holm p = 0.035, statistically significant).\n"
+        "   - On decoupled streams (seeds 4000–4029, artifact-free control): P7 vs P2 collapses to **+0.0077** (95% CI `[-0.0048, +0.0207]`, Holm p = 1.000), and P5-wstat vs P2 collapses to **+0.0027** (95% CI `[-0.0075, +0.0126]`, Holm p = 1.000).\n"
+        "   - Side-by-side reporting shows the apparent importance-weighted advantage disappearing once the generator artifact is removed.\n\n"
+        "5. **Supervised (Label-Using) Detectors vs Label-Free:**\n"
+        "   - Comparisons must not conflate significant and non-significant results across metrics.\n"
+        "   - **At acc@4 on decoupled streams:** Page-Hinkley (P13) significantly outperforms P7 by **+0.0352** (Holm p = 0.001) and P5 by **+0.0313** (Holm p = 0.006). ADWIN (P10) does **not** achieve significance at acc@4 (+0.0257 vs P7, Holm p = 0.145; +0.0218 vs P5, Holm p = 0.217). Performance-Drop (P6) is borderline (+0.0210 vs P7, Holm p = 0.148; +0.0171 vs P5, Holm p = 0.330).\n"
+        "   - **On Curve AUC on decoupled streams:** Both Page-Hinkley (+0.0259 vs P7, Holm p < 0.001; +0.0247 vs P5, Holm p = 0.001) and ADWIN (+0.0230 vs P7, Holm p = 0.009; +0.0219 vs P5, Holm p = 0.009) achieve statistically significant gains.\n\n"
+        "6. **Pre-Registration Timeline & Number of Stream Looks:**\n"
+        "   - Development was conducted across four stream sets: Seeds 1000–1029 (exploratory round 1), Seeds 2000–2029 (exploratory round 2), Seeds 3000–3029 (initial confirmatory evaluation before artifact detection), and Seeds 4000–4029 (confirmatory evaluation on decoupled streams).\n"
+        "   - `HYPOTHESIS_v3.md` was drafted after analyzing the 3000–3029 results and identifying the generator artifact. The primary test list was updated accordingly, and `HYPOTHESIS_v3.md` was committed to git (commit `53861c3`) *before* executing the decoupled confirmatory sweep on seeds 4000–4029.\n\n"
+        "7. **Single-Run Benchmark Designation:**\n"
+        "   - The single-run evaluations on Fraud, Intrusion, and ELEC2 represent exploratory/descriptive benchmarks without replicate variance and are presented as descriptive context in appendices rather than confirmatory hypothesis tests.\n\n"
+    )
+
     content.append("### Label Setting & Supervision Disclosures\n")
     content.append(
         "- **Label-Free Policies (P0, P1, P2, P3, P4, P5, P7, P8, P12 KSWIN):** "
