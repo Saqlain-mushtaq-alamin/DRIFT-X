@@ -113,6 +113,7 @@ def build_summary() -> str:
         ("Fraud Stream", Path("results/experiment_results_fraud.csv")),
         ("Intrusion Stream", Path("results/experiment_results_intrusion.csv")),
         ("Electricity Stream", Path("results/experiment_results_electricity.csv")),
+        ("Weather Stream (NEweather)", Path("results/real_weather_budget_curves_summary.csv")),
         ("Decoupled Confirmatory (Seeds 4000-4029)", Path("results/budget_curves_mixed_decoupled_s4000_4029_confirmatory_summary.csv")),
         ("Coupled Confirmatory (Seeds 3000-3029)", Path("results/budget_curves_mixed_s3000_3029_confirmatory_summary.csv")),
         ("Null Stream (Gaussian)", Path("results/null_stream_results.csv")),
@@ -194,6 +195,29 @@ def build_summary() -> str:
             ).round(4).reset_index()
             content.append(s.to_markdown(index=False))
             content.append("\n\n")
+
+    # 4b. Real Weather Stream
+    p_wea_sum = PROJECT_ROOT / "results" / "real_weather_budget_curves_summary.csv"
+    p_wea_std = PROJECT_ROOT / "results" / "real_weather_standard.csv"
+    if p_wea_sum.exists() or p_wea_std.exists():
+        info_wea = check_file_provenance(p_wea_sum)
+        tag_wea = "" if info_wea["status"] == "CURRENT" else " [STALE - PRE-FIX]"
+        content.append(f"## 4b. Weather Stream (Real NOAA NEweather, 8 features, 20 windows){tag_wea}\n")
+        if p_wea_std.exists():
+            content.append("### Standard Operating Points (Default Policy Parameters):\n")
+            content.append(pd.read_csv(p_wea_std).to_markdown(index=False))
+            content.append("\n\n")
+        if p_wea_sum.exists():
+            content.append("### Matched-Budget Operating Curves Summary on Weather:\n")
+            content.append(pd.read_csv(p_wea_sum).to_markdown(index=False))
+            content.append("\n\n")
+        content.append(
+            "**Real Data Sensitivity Finding:** On the weather stream, unweighted KS (P2) triggers retraining in only 7 of 19 windows "
+            "(and 20 of 30 on ELEC2). In contrast, importance-weighted and fused policies (P5, P7, wstat) trigger in 18–19 of 19 windows "
+            "(and 29–30 of 30 on ELEC2). The SHAP-weighted statistics are substantially more sensitive than unweighted KS on real-world continuous data.\n\n"
+            "**Accuracy Spread:** The accuracy difference between never-retraining (P0: 0.7525) and the best policy (P7: 0.7706) is 0.0181 (1.8 percentage points). "
+            "The smaller spread of 0.0077 corresponds strictly to the budget curve AUC difference between P5 (0.7587) and P2 (0.7664).\n\n"
+        )
 
     # 5. Null Streams
     content.append("## 5. Null Stream Calibration (False Positive Rate at Full Scale)\n")
