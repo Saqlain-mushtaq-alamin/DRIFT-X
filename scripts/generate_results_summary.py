@@ -98,8 +98,13 @@ def findings_from(tests_path: Path, label: str) -> str:
         return f"#### {label}\n- No tests recorded (all comparisons dropped or empty)."
     lines = [f"#### {label}"]
     for _, r in t.iterrows():
-        verdict = ("no significant difference" if r.p_holm >= 0.05
-                   else f"{r.ref} better" if r.diff_mean > 0 else f"{r.vs} better")
+        if r.p_holm >= 0.05:
+            if (r.ci_95_lo > 0 and r.ci_95_hi > 0) or (r.ci_95_lo < 0 and r.ci_95_hi < 0):
+                verdict = "not significant after Holm correction; bootstrap CIs are unadjusted"
+            else:
+                verdict = "no significant difference"
+        else:
+            verdict = f"{r.ref} better" if r.diff_mean > 0 else f"{r.vs} better"
         lines.append(f"- {r.ref} vs {r.vs} ({r.metric}, {r.family}): {r.diff_mean:+.4f} "
                      f"[{r.ci_95_lo:+.4f}, {r.ci_95_hi:+.4f}], Holm p={r.p_holm:.3f}, n={int(r.n)}: {verdict}.")
     return "\n".join(lines)
@@ -194,15 +199,25 @@ def build_summary() -> str:
             content.append(pd.read_csv(p_wea_sum).to_markdown(index=False))
             content.append("\n\n")
         content.append(
-            "**Real Data Sensitivity Finding:** On the weather stream, unweighted KS (P2) triggers retraining in only 7 of 19 windows "
-            "(and 20 of 30 on ELEC2). In contrast, importance-weighted and fused policies (P5, P7, wstat) trigger in 18–19 of 19 windows "
-            "(and 29–30 of 30 on ELEC2). The SHAP-weighted statistics are substantially more sensitive than unweighted KS on real-world continuous data.\n\n"
+            "**Real Data Operating Points at Default Thresholds:** At their pre-configured default thresholds, "
+            "unweighted KS (P2) triggers retraining in 7 of 19 windows on the weather stream (and 20 of 30 on ELEC2). "
+            "In contrast, importance-weighted and fused policies (P5, P7, wstat) trigger in 18–19 of 19 windows "
+            "(and 29–30 of 30 on ELEC2). Because P2 uses a KS z-score while P7 uses a weighted D/D_crit ratio, "
+            "these signals operate on fundamentally different numerical scales. This difference reflects the chosen "
+            "operating points at default parameters rather than an intrinsic difference in statistical sensitivity.\n\n"
             "**Accuracy Spread:** The accuracy difference between never-retraining (P0: 0.7525) and the best policy (P7: 0.7706) is 0.0181 (1.8 percentage points). "
             "The smaller spread of 0.0077 corresponds strictly to the budget curve AUC difference between P5 (0.7587) and P2 (0.7664).\n\n"
         )
 
     # 5. Null Streams
     content.append("## 5. Null Stream Calibration (False Positive Rate at Full Scale)\n")
+    content.append(
+        "**Null Calibration Findings:** Label-free policies (P0, P2, P3, P4, P5, P6, P7) achieved **0 false retrains out of 95 windows** "
+        "(0.0% FPR, exact binomial 95% upper bound 3.10%) on both independent Gaussian and shuffled ELEC2 null streams. "
+        "In contrast, the label-using policy P9 (SHAP-Loss) suffered from miscalibration, triggering **9 false retrains out of 95 (9.47%)** "
+        "on the Gaussian null stream and **5 false retrains out of 95 (5.26%)** on the shuffled ELEC2 null stream. "
+        "Fixed-schedule (P1, 30/95) and random-budget (P8, 21/95) retrain by construction.\n\n"
+    )
     p_null_ind = PROJECT_ROOT / "results" / "null_stream_summary.csv"
     if p_null_ind.exists():
         content.append("### 5a. Independent Gaussian Null (20 windows × 5 seeds = 95 eval windows)\n")
