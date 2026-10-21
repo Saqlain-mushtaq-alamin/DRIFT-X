@@ -64,6 +64,10 @@ def run_one_weather(pol: str, sec: str, key: str, val: Any) -> Dict[str, Any]:
         "retrains": int(ev_active["retrained"].sum()),
         "acc": float(ev_active["accuracy"].mean()),
         "n_eval": len(ev_active),
+        "data_source": "real",
+        "frozen_hash": get_frozen_hash(),
+        "git_commit": get_git_commit(),
+        "git_dirty": get_git_dirty(),
     }
 
 
