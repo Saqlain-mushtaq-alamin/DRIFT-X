@@ -129,6 +129,10 @@ def main():
         curve_rows.append({
             "policy": pol, **at, "auc": auc, "auc_cov": auc_cov,
             "min_retrains": g["retrains"].min(), "max_retrains": g["retrains"].max(),
+            "data_source": "real",
+            "frozen_hash": get_frozen_hash(),
+            "git_commit": get_git_commit(),
+            "git_dirty": get_git_dirty(),
         })
 
     df_curves = pd.DataFrame(curve_rows).sort_values("auc", ascending=False)
